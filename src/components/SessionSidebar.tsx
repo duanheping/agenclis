@@ -2,12 +2,13 @@ import { type MouseEvent, useEffect, useState } from 'react'
 
 import {
   summarizeCommand,
+  type ProjectSnapshot,
   type SessionSnapshot,
   type SessionStatus,
 } from '../shared/session'
 
 interface SessionSidebarProps {
-  sessions: SessionSnapshot[]
+  projects: ProjectSnapshot[]
   activeSessionId: string | null
   onCreate: () => void
   onSelect: (id: string) => Promise<void>
@@ -29,7 +30,7 @@ const statusLabels: Record<SessionStatus, string> = {
 }
 
 export function SessionSidebar({
-  sessions,
+  projects,
   activeSessionId,
   onCreate,
   onSelect,
@@ -96,98 +97,133 @@ export function SessionSidebar({
     <aside className="sidebar">
       <div className="sidebar__header">
         <div>
-          <p className="eyebrow">Session List</p>
+          <p className="eyebrow">Project List</p>
           <h1>Agent CLIs</h1>
-          <p className="sidebar__subtitle">Opened agent CLI sessions</p>
+          <p className="sidebar__subtitle">
+            Projects first, with each session nested underneath.
+          </p>
         </div>
-        <button type="button" className="primary-button sidebar__new-button" onClick={onCreate}>
+        <button
+          type="button"
+          className="primary-button sidebar__new-button"
+          onClick={onCreate}
+        >
           + New
         </button>
       </div>
 
       <div className="session-list">
-        {sessions.length === 0 ? (
+        {projects.length === 0 ? (
           <div className="sidebar__empty">
-            <p>No sessions yet.</p>
-            <span>Create a command on the left, then switch between them here.</span>
+            <p>No projects yet.</p>
+            <span>Create a session and it will appear under its project.</span>
           </div>
         ) : null}
 
-        {sessions.map((session) => {
-          const active = session.config.id === activeSessionId
-          const editing = session.config.id === editingId
+        {projects.map((project) => {
+          const projectActive = project.sessions.some(
+            (session) => session.config.id === activeSessionId,
+          )
 
           return (
-            <div
-              key={session.config.id}
-              role="button"
-              tabIndex={0}
-              className={`session-item${active ? ' is-active' : ''}${editing ? ' is-editing' : ''}`}
-              onClick={() => {
-                void onSelect(session.config.id)
-              }}
-              onContextMenu={(event) => openContextMenu(event, session)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  void onSelect(session.config.id)
-                }
-              }}
+            <section
+              key={project.config.id}
+              className={`project-group${projectActive ? ' is-active' : ''}`}
             >
-              {editing ? (
-                <form
-                  className="rename-form session-item__rename"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void commitRename(session.config.id)
-                  }}
-                >
-                  <input
-                    type="text"
-                    value={draftTitle}
-                    autoFocus
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => setDraftTitle(event.target.value)}
-                  />
-                  <div className="rename-form__actions">
-                    <button
-                      type="submit"
-                      className="ghost-button"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setEditingId(null)
-                        setDraftTitle('')
+              <div className="project-group__header">
+                <div className="project-group__content">
+                  <div className="project-group__title">{project.config.title}</div>
+                  <div className="project-group__path">{project.config.rootPath}</div>
+                </div>
+                <span className="project-group__count" aria-label={`${project.sessions.length} sessions`}>
+                  {project.sessions.length}
+                </span>
+              </div>
+
+              <div className="project-group__sessions">
+                {project.sessions.map((session) => {
+                  const active = session.config.id === activeSessionId
+                  const editing = session.config.id === editingId
+
+                  return (
+                    <div
+                      key={session.config.id}
+                      role="button"
+                      tabIndex={0}
+                      className={`session-item is-nested${active ? ' is-active' : ''}${editing ? ' is-editing' : ''}`}
+                      onClick={() => {
+                        void onSelect(session.config.id)
+                      }}
+                      onContextMenu={(event) => openContextMenu(event, session)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          void onSelect(session.config.id)
+                        }
                       }}
                     >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <span
-                    className={`status-dot is-${session.runtime.status}`}
-                    aria-hidden="true"
-                  />
-                  <div className="session-item__content">
-                    <div className="session-item__title">{session.config.title}</div>
-                    <div className="session-item__command">
-                      {summarizeCommand(session.config.startupCommand)}
+                      {editing ? (
+                        <form
+                          className="rename-form session-item__rename"
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            void commitRename(session.config.id)
+                          }}
+                        >
+                          <input
+                            type="text"
+                            value={draftTitle}
+                            autoFocus
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => setDraftTitle(event.target.value)}
+                          />
+                          <div className="rename-form__actions">
+                            <button
+                              type="submit"
+                              className="ghost-button"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setEditingId(null)
+                                setDraftTitle('')
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <span
+                            className={`status-dot is-${session.runtime.status}`}
+                            aria-hidden="true"
+                          />
+                          <div className="session-item__content">
+                            <div className="session-item__title">
+                              {session.config.title}
+                            </div>
+                            <div className="session-item__meta">
+                              <div className="session-item__command">
+                                {summarizeCommand(session.config.startupCommand)}
+                              </div>
+                              <span className={`session-item__status is-${session.runtime.status}`}>
+                                {statusLabels[session.runtime.status]}
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
-                  <span className={`status-pill is-${session.runtime.status}`}>
-                    {statusLabels[session.runtime.status]}
-                  </span>
-                </>
-              )}
-            </div>
+                  )
+                })}
+              </div>
+            </section>
           )
         })}
       </div>

@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   closeSession: 'session:close',
   writeToSession: 'session:write',
   resizeSession: 'session:resize',
+  pickDirectory: 'dialog:pick-directory',
   sessionData: 'session:data',
   sessionRuntime: 'session:runtime',
   sessionExit: 'session:exit',
@@ -33,6 +34,7 @@ export interface AgentCliApi {
   closeSession(id: string): Promise<SessionCloseResult>
   writeToSession(id: string, data: string): Promise<void>
   resizeSession(id: string, cols: number, rows: number): Promise<void>
+  pickDirectory(defaultPath?: string): Promise<string | null>
   onSessionData(listener: (event: SessionDataEvent) => void): () => void
   onSessionRuntime(listener: (event: SessionRuntimeEvent) => void): () => void
   onSessionExit(listener: (event: SessionExitMeta) => void): () => void
