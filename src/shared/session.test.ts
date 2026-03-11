@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { deriveSessionTitle, resolveSessionCwd, summarizeCommand } from './session'
+import {
+  deriveProjectTitle,
+  deriveSessionTitle,
+  resolveProjectRoot,
+  resolveSessionCwd,
+  summarizeCommand,
+} from './session'
 
 describe('session helpers', () => {
+  it('derives the project title from the root path when title is empty', () => {
+    expect(deriveProjectTitle('', 'E:\\repo\\workspace')).toBe('workspace')
+  })
+
   it('prefers a manual title when provided', () => {
     expect(deriveSessionTitle('Agent Alpha', 'agent --profile dev', 'E:\\repo'))
       .toBe('Agent Alpha')
@@ -21,6 +31,12 @@ describe('session helpers', () => {
   it('resolves an optional cwd against a fallback directory', () => {
     expect(resolveSessionCwd(undefined, 'C:\\Users\\Shiyu')).toBe('C:\\Users\\Shiyu')
     expect(resolveSessionCwd('  E:\\repo\\project  ', 'C:\\Users\\Shiyu'))
+      .toBe('E:\\repo\\project')
+  })
+
+  it('resolves an optional project root against a fallback directory', () => {
+    expect(resolveProjectRoot(undefined, 'C:\\Users\\Shiyu')).toBe('C:\\Users\\Shiyu')
+    expect(resolveProjectRoot('  E:\\repo\\project  ', 'C:\\Users\\Shiyu'))
       .toBe('E:\\repo\\project')
   })
 

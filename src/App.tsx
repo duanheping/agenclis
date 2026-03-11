@@ -5,7 +5,12 @@ import { CreateSessionDialog } from './components/CreateSessionDialog'
 import { SessionSidebar } from './components/SessionSidebar'
 import { TerminalWorkspace } from './components/TerminalWorkspace'
 import { terminalRegistry } from './lib/terminalRegistry'
-import type { CreateSessionInput, SessionStatus } from './shared/session'
+import type {
+  CreateSessionInput,
+  ProjectSnapshot,
+  SessionSnapshot,
+  SessionStatus,
+} from './shared/session'
 import { useSessionsStore } from './store/useSessionsStore'
 
 const statusLabels: Record<SessionStatus, string> = {
@@ -23,16 +28,18 @@ function getErrorMessage(error: unknown): string {
   return 'Unknown error.'
 }
 
+function flattenSessions(projects: ProjectSnapshot[]): SessionSnapshot[] {
+  return projects.flatMap((project) => project.sessions)
+}
+
 function App() {
   const agentCli = window.agentCli
-  const sessions = useSessionsStore((state) => state.sessions)
+  const projects = useSessionsStore((state) => state.projects)
   const activeSessionId = useSessionsStore((state) => state.activeSessionId)
   const hydrated = useSessionsStore((state) => state.hydrated)
   const setInitialData = useSessionsStore((state) => state.setInitialData)
-  const upsertSession = useSessionsStore((state) => state.upsertSession)
   const setActiveSession = useSessionsStore((state) => state.setActiveSession)
   const updateRuntime = useSessionsStore((state) => state.updateRuntime)
-  const removeSession = useSessionsStore((state) => state.removeSession)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(() =>
@@ -41,13 +48,18 @@ function App() {
       : 'Agent bridge is unavailable. The preload script did not load.',
   )
 
+  const sessions = flattenSessions(projects)
   const activeSession =
     sessions.find((session) => session.config.id === activeSessionId) ?? null
+  const activeProject =
+    projects.find((project) =>
+      project.sessions.some((session) => session.config.id === activeSessionId),
+    ) ?? null
 
   useEffect(() => {
     if (!agentCli) {
       setInitialData({
-        sessions: [],
+        projects: [],
         activeSessionId: null,
       })
       return
@@ -68,7 +80,7 @@ function App() {
       } catch (error) {
         setErrorMessage(getErrorMessage(error))
         setInitialData({
-          sessions: [],
+          projects: [],
           activeSessionId: null,
         })
       }
@@ -80,6 +92,15 @@ function App() {
     }
   }, [agentCli, setInitialData, updateRuntime])
 
+  const refreshWorkspace = async () => {
+    if (!agentCli) {
+      throw new Error('Agent bridge is unavailable.')
+    }
+
+    const payload = await agentCli.listSessions()
+    setInitialData(payload)
+  }
+
   const handleCreateSession = async (input: CreateSessionInput) => {
     if (!agentCli) {
       throw new Error('Agent bridge is unavailable.')
@@ -87,8 +108,8 @@ function App() {
 
     setErrorMessage(null)
     try {
-      const snapshot = await agentCli.createSession(input)
-      upsertSession(snapshot)
+      await agentCli.createSession(input)
+      await refreshWorkspace()
     } catch (error) {
       const message = getErrorMessage(error)
       setErrorMessage(message)
@@ -124,8 +145,8 @@ function App() {
 
     try {
       setErrorMessage(null)
-      const snapshot = await agentCli.renameSession(id, title)
-      upsertSession(snapshot)
+      await agentCli.renameSession(id, title)
+      await refreshWorkspace()
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     }
@@ -139,9 +160,9 @@ function App() {
 
     try {
       setErrorMessage(null)
-      const result = await agentCli.closeSession(id)
+      await agentCli.closeSession(id)
       terminalRegistry.forget(id)
-      removeSession(result)
+      await refreshWorkspace()
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     }
@@ -156,8 +177,8 @@ function App() {
     try {
       setErrorMessage(null)
       terminalRegistry.clear(id)
-      const snapshot = await agentCli.restartSession(id)
-      upsertSession(snapshot)
+      await agentCli.restartSession(id)
+      await refreshWorkspace()
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     }
@@ -168,7 +189,7 @@ function App() {
       <div className="app-shell__background" aria-hidden="true" />
 
       <SessionSidebar
-        sessions={sessions}
+        projects={projects}
         activeSessionId={activeSessionId}
         onCreate={() => setDialogOpen(true)}
         onSelect={handleActivateSession}
@@ -181,8 +202,16 @@ function App() {
           {activeSession ? (
             <>
               <div className="workspace-shell__meta is-compact">
-                <h2 className="workspace-shell__title">{activeSession.config.title}</h2>
-                <p className="workspace-shell__path">{activeSession.config.cwd}</p>
+                <p className="eyebrow">Project</p>
+                <h2 className="workspace-shell__title">
+                  {activeProject?.config.title ?? activeSession.config.title}
+                </h2>
+                <p className="workspace-shell__path">
+                  {activeProject?.config.rootPath ?? activeSession.config.cwd}
+                </p>
+                <p className="workspace-shell__caption">
+                  Session: {activeSession.config.title}
+                </p>
               </div>
 
               <div className="workspace-shell__actions">
@@ -213,7 +242,7 @@ function App() {
             <div className="workspace-shell__meta is-compact">
               <h2 className="workspace-shell__title">No active session</h2>
               <p className="workspace-shell__path">
-                Select an opened agent CLI from the left list.
+                Select a project session from the left list.
               </p>
             </div>
           )}
@@ -240,6 +269,8 @@ function App() {
 
       <CreateSessionDialog
         open={dialogOpen}
+        projects={projects}
+        activeProjectId={activeProject?.config.id ?? projects[0]?.config.id ?? null}
         onClose={() => setDialogOpen(false)}
         onSubmit={handleCreateSession}
       />

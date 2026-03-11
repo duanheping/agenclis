@@ -1,7 +1,14 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { app, BrowserWindow, ipcMain, session } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  session,
+  type OpenDialogOptions,
+} from 'electron'
 
 import { IPC_CHANNELS } from '../src/shared/ipc'
 import { SessionManager } from './sessionManager'
@@ -129,6 +136,23 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.resizeSession, (_event, id, cols, rows) =>
     sessionManager.resizeSession(id, cols, rows),
   )
+  ipcMain.handle(IPC_CHANNELS.pickDirectory, async (_event, defaultPath?: string) => {
+    const options: OpenDialogOptions = {
+      title: 'Select project folder',
+      defaultPath,
+      properties: ['openDirectory'],
+    }
+
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+
+    if (result.canceled) {
+      return null
+    }
+
+    return result.filePaths[0] ?? null
+  })
 }
 
 app.whenReady().then(async () => {

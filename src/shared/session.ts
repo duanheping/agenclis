@@ -2,8 +2,17 @@ export const SESSION_STATUSES = ['starting', 'running', 'exited', 'error'] as co
 
 export type SessionStatus = (typeof SESSION_STATUSES)[number]
 
+export interface ProjectConfig {
+  id: string
+  title: string
+  rootPath: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SessionConfig {
   id: string
+  projectId: string
   title: string
   startupCommand: string
   cwd: string
@@ -25,12 +34,27 @@ export interface SessionSnapshot {
   runtime: SessionRuntime
 }
 
-export interface ListSessionsResponse {
+export interface ProjectSnapshot {
+  config: ProjectConfig
   sessions: SessionSnapshot[]
+}
+
+export interface WorkspaceSnapshot {
+  projects: ProjectSnapshot[]
   activeSessionId: string | null
 }
 
+export type ListSessionsResponse = WorkspaceSnapshot
+
+export interface CreateProjectInput {
+  title?: string
+  rootPath: string
+}
+
 export interface CreateSessionInput {
+  projectId?: string
+  projectTitle?: string
+  projectRootPath?: string
   title?: string
   startupCommand: string
   cwd?: string
@@ -38,6 +62,12 @@ export interface CreateSessionInput {
 
 export interface SessionCloseResult {
   closedSessionId: string
+  activeSessionId: string | null
+}
+
+export interface ProjectCloseResult {
+  closedProjectId: string
+  closedSessionIds: string[]
   activeSessionId: string | null
 }
 
@@ -54,6 +84,20 @@ export interface SessionDataEvent {
 export interface SessionRuntimeEvent {
   sessionId: string
   runtime: SessionRuntime
+}
+
+export function deriveProjectTitle(
+  title: string | undefined,
+  rootPath: string,
+): string {
+  const manualTitle = title?.trim()
+  if (manualTitle) {
+    return manualTitle
+  }
+
+  const normalizedPath = rootPath.trim().replace(/[\\/]+$/, '')
+  const pathParts = normalizedPath.split(/[\\/]/).filter(Boolean)
+  return pathParts.at(-1) ?? 'New Project'
 }
 
 export function deriveSessionTitle(
@@ -74,6 +118,18 @@ export function deriveSessionTitle(
   const normalizedPath = cwd.trim().replace(/[\\/]+$/, '')
   const pathParts = normalizedPath.split(/[\\/]/).filter(Boolean)
   return pathParts.at(-1) ?? 'New Session'
+}
+
+export function resolveProjectRoot(
+  rootPath: string | undefined,
+  fallbackPath: string,
+): string {
+  const normalized = rootPath?.trim()
+  if (normalized) {
+    return normalized
+  }
+
+  return fallbackPath.trim()
 }
 
 export function resolveSessionCwd(

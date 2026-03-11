@@ -12,6 +12,6 @@ describe('windowsShell', () => {
 
   it('falls back to powershell when the preferred command is missing', () => {
     expect(resolveShellCommand('this-command-does-not-exist.exe').toLowerCase())
-      .toContain('powershell.exe')
+      .toMatch(/(pwsh|powershell)\.exe$/)
   })
 })

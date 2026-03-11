@@ -32,6 +32,8 @@ const api: AgentCliApi = {
     ipcRenderer.invoke(IPC_CHANNELS.writeToSession, id, data),
   resizeSession: (id, cols, rows) =>
     ipcRenderer.invoke(IPC_CHANNELS.resizeSession, id, cols, rows),
+  pickDirectory: (defaultPath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.pickDirectory, defaultPath),
   onSessionData: (listener) =>
     createListener<SessionDataEvent>(IPC_CHANNELS.sessionData, listener),
   onSessionRuntime: (listener) =>
