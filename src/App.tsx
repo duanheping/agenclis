@@ -63,6 +63,7 @@ function App() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [createDialogIntent, setCreateDialogIntent] =
     useState<CreateDialogIntent>('session')
+  const [dialogProjectId, setDialogProjectId] = useState<string | null>(null)
   const [showProjectPaths, setShowProjectPaths] = useState<boolean>(() =>
     readShowProjectPathsPreference(),
   )
@@ -96,8 +97,11 @@ function App() {
 
     void (async () => {
       try {
-        const payload = await agentCli.restoreSessions()
+        const payload = await agentCli.listSessions()
         setInitialData(payload)
+        void agentCli.restoreSessions().catch((error) => {
+          setErrorMessage(getErrorMessage(error))
+        })
       } catch (error) {
         setErrorMessage(getErrorMessage(error))
         setInitialData({
@@ -200,6 +204,24 @@ function App() {
     }
   }
 
+  const openCreateSessionDialog = (projectId: string | null = null) => {
+    setCreateDialogIntent('session')
+    setDialogProjectId(projectId)
+    setDialogOpen(true)
+  }
+
+  const openCreateProjectDialog = () => {
+    setCreateDialogIntent('project')
+    setDialogProjectId(null)
+    setDialogOpen(true)
+  }
+
+  const closeCreateSessionDialog = () => {
+    setDialogOpen(false)
+    setCreateDialogIntent('session')
+    setDialogProjectId(null)
+  }
+
   return (
     <div className="app-shell">
       <div className="app-shell__background" aria-hidden="true" />
@@ -225,14 +247,9 @@ function App() {
         projects={projects}
         activeSessionId={activeSessionId}
         showProjectPaths={showProjectPaths}
-        onCreateSession={() => {
-          setCreateDialogIntent('session')
-          setDialogOpen(true)
-        }}
-        onCreateProject={() => {
-          setCreateDialogIntent('project')
-          setDialogOpen(true)
-        }}
+        onCreateSession={() => openCreateSessionDialog()}
+        onCreateProject={openCreateProjectDialog}
+        onCreateForProject={(projectId) => openCreateSessionDialog(projectId)}
         onSelect={handleActivateSession}
         onRename={handleRenameSession}
         onClose={handleCloseSession}
@@ -266,15 +283,12 @@ function App() {
         initialIntent={createDialogIntent}
         projects={projects}
         activeProjectId={
-          projects.find((project) =>
-            project.sessions.some(
-              (session) => session.config.id === activeSessionId,
-            ),
-          )?.config.id ??
+          dialogProjectId ??
+          activeProject?.config.id ??
           projects[0]?.config.id ??
           null
         }
-        onClose={() => setDialogOpen(false)}
+        onClose={closeCreateSessionDialog}
         onSubmit={handleCreateSession}
       />
     </div>
