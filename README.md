@@ -1,10 +1,11 @@
+[![README in English](https://img.shields.io/badge/README-English-1f6feb)](./README.md)
+[![README in Simplified Chinese](https://img.shields.io/badge/README-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-1f6feb)](./README.zh-CN.md)
+
 # Agent CLIs
 
 Agent CLIs is a Windows desktop manager for multiple local Agent CLI sessions.
 The left sidebar organizes projects and sessions, while the main area shows the
 interactive terminal for the currently active session.
-
-Chinese documentation is available in the [Chinese section](#中文说明) below.
 
 ## Features
 
@@ -48,43 +49,3 @@ npm run rebuild
 
 - `npm run rebuild` requires Visual Studio Build Tools. Otherwise `node-gyp`
   will fail because the MSVC toolchain is unavailable.
-
-## 中文说明
-
-Agent CLIs 是一个用于管理多个本地 Agent CLI 会话的 Windows 桌面应用。
-左侧边栏用于组织项目和会话，右侧区域显示当前活动会话的交互式终端。
-
-### 功能
-
-- 基于 Electron + React + TypeScript 构建
-- 可以先创建项目，再按需添加会话
-- 左侧边栏支持新建、切换、重命名和关闭会话
-- 每个会话都有独立的 `xterm.js` 终端界面
-- Electron 主进程通过 `node-pty` 管理各个会话的 PTY
-- 会话状态会持久化到 `%APPDATA%`，并在应用重启后恢复
-- Windows 下优先使用 `pwsh.exe`，不存在时回退到 `powershell.exe`
-
-### 常用命令
-
-```bash
-npm install
-npm run dev
-npm run lint
-npm test
-npm run build
-npm run dist
-```
-
-### Windows 打包说明
-
-- 当前打包配置使用 `npmRebuild: false`，直接依赖 `node-pty` 自带的
-  Windows 预编译二进制，因此 `npm run dist` 不要求预先安装
-  Visual Studio Build Tools。
-- 如果你需要手动重建原生模块，请运行：
-
-```bash
-npm run rebuild
-```
-
-- `npm run rebuild` 需要本机安装 Visual Studio Build Tools，否则
-  `node-gyp` 会因为缺少 MSVC 工具链而失败。
