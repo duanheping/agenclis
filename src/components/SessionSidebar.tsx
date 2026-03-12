@@ -6,6 +6,7 @@ interface SessionSidebarProps {
   projects: ProjectSnapshot[]
   activeSessionId: string | null
   showProjectPaths: boolean
+  onToggleSidebar: () => void
   onCreateSession: () => void
   onCreateProject: () => void
   onCreateForProject: (projectId: string) => void
@@ -40,6 +41,7 @@ export function SessionSidebar({
   projects,
   activeSessionId,
   showProjectPaths,
+  onToggleSidebar,
   onCreateSession,
   onCreateProject,
   onCreateForProject,
@@ -187,6 +189,18 @@ export function SessionSidebar({
     <>
       <aside className="sidebar">
         <div className="sidebar__header">
+          <div className="sidebar__topbar">
+            <button
+              type="button"
+              className="sidebar__toggle-button"
+              aria-label="Collapse sidebar"
+              onClick={onToggleSidebar}
+            >
+              <span className="sidebar__toggle-icon" aria-hidden="true" />
+              <span className="sidebar__toggle-label">Hide sidebar</span>
+            </button>
+          </div>
+
           <div className="sidebar__actions">
             <button
               type="button"

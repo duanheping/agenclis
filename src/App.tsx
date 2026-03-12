@@ -17,6 +17,7 @@ import type {
 import { useSessionsStore } from './store/useSessionsStore'
 
 const SHOW_PROJECT_PATHS_KEY = 'agenclis:show-project-paths'
+const SIDEBAR_OPEN_KEY = 'agenclis:sidebar-open'
 type CreateDialogIntent = 'session' | 'project'
 
 function getErrorMessage(error: unknown): string {
@@ -55,6 +56,19 @@ function readShowProjectPathsPreference(): boolean {
   }
 }
 
+function readSidebarOpenPreference(): boolean {
+  if (typeof window === 'undefined') {
+    return true
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(SIDEBAR_OPEN_KEY)
+    return storedValue === null ? true : storedValue === 'true'
+  } catch {
+    return true
+  }
+}
+
 function App() {
   const agentCli = window.agentCli
   const projects = useSessionsStore((state) => state.projects)
@@ -71,6 +85,9 @@ function App() {
   const [dialogProjectId, setDialogProjectId] = useState<string | null>(null)
   const [showProjectPaths, setShowProjectPaths] = useState<boolean>(() =>
     readShowProjectPathsPreference(),
+  )
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() =>
+    readSidebarOpenPreference(),
   )
   const [windowsCommandPromptSessionIds, setWindowsCommandPromptSessionIds] =
     useState<string[]>([])
@@ -161,6 +178,14 @@ function App() {
       // Ignore preference persistence failures and keep the in-memory state.
     }
   }, [showProjectPaths])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen))
+    } catch {
+      // Ignore preference persistence failures and keep the in-memory state.
+    }
+  }, [sidebarOpen])
 
   const refreshWorkspace = async () => {
     if (!agentCli) {
@@ -313,10 +338,23 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarOpen ? '' : ' app-shell--sidebar-collapsed'}`}>
       <div className="app-shell__background" aria-hidden="true" />
 
       <header className="titlebar">
+        {!sidebarOpen ? (
+          <button
+            type="button"
+            className="titlebar__sidebar-toggle"
+            aria-label="Expand sidebar"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(true)}
+          >
+            <span className="titlebar__sidebar-toggle-icon" aria-hidden="true" />
+            <span className="titlebar__sidebar-toggle-label">Show sidebar</span>
+          </button>
+        ) : null}
+
         <div className="titlebar__brand">
           <span className="titlebar__name">Agent CLIs</span>
           <span className="titlebar__separator" aria-hidden="true">
@@ -328,22 +366,25 @@ function App() {
         </div>
       </header>
 
-      <SessionSidebar
-        projects={projects}
-        activeSessionId={activeSessionId}
-        showProjectPaths={showProjectPaths}
-        onCreateSession={() => openCreateSessionDialog()}
-        onCreateProject={openCreateProjectDialog}
-        onCreateForProject={(projectId) => openCreateSessionDialog(projectId)}
-        onSelect={handleActivateSession}
-        onRename={handleRenameSession}
-        onClose={handleCloseSession}
-        windowsCommandPromptSessionIds={windowsCommandPromptSessionIds}
-        onToggleWindowsCommandPrompt={handleToggleWindowsCommandPrompt}
-        onToggleProjectPaths={() =>
-          setShowProjectPaths((current) => !current)
-        }
-      />
+      {sidebarOpen ? (
+        <SessionSidebar
+          projects={projects}
+          activeSessionId={activeSessionId}
+          showProjectPaths={showProjectPaths}
+          onToggleSidebar={() => setSidebarOpen(false)}
+          onCreateSession={() => openCreateSessionDialog()}
+          onCreateProject={openCreateProjectDialog}
+          onCreateForProject={(projectId) => openCreateSessionDialog(projectId)}
+          onSelect={handleActivateSession}
+          onRename={handleRenameSession}
+          onClose={handleCloseSession}
+          windowsCommandPromptSessionIds={windowsCommandPromptSessionIds}
+          onToggleWindowsCommandPrompt={handleToggleWindowsCommandPrompt}
+          onToggleProjectPaths={() =>
+            setShowProjectPaths((current) => !current)
+          }
+        />
+      ) : null}
 
       <main className="workspace-shell">
         {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
