@@ -1,4 +1,9 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import {
+  contextBridge,
+  ipcRenderer,
+  webUtils,
+  type IpcRendererEvent,
+} from 'electron'
 
 import { IPC_CHANNELS, type AgentCliApi } from '../src/shared/ipc'
 import type {
@@ -49,6 +54,7 @@ const api: AgentCliApi = {
   pickDirectory: (defaultPath) =>
     ipcRenderer.invoke(IPC_CHANNELS.pickDirectory, defaultPath),
   openPath: (targetPath) => ipcRenderer.invoke(IPC_CHANNELS.openPath, targetPath),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   listWindowsCommandPrompts: () =>
     ipcRenderer.invoke(IPC_CHANNELS.listWindowsCommandPrompts),
   openWindowsCommandPrompt: (sessionId, cwd) =>

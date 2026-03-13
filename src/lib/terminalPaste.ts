@@ -11,9 +11,14 @@ interface ClipboardDataLike {
   types?: ArrayLike<string>
 }
 
+interface TransferDataLike extends ClipboardDataLike {
+  files?: ArrayLike<File>
+}
+
 type TerminalPasteBinding = Pick<Terminal, 'element' | 'textarea' | 'paste'>
 type TerminalClipboardBinding = TerminalPasteBinding &
   Pick<Terminal, 'getSelection' | 'hasSelection'>
+type FilePathResolver = (file: File) => string | null | undefined
 
 function matchesKey(
   event: KeyboardEvent,
@@ -114,9 +119,53 @@ export function hasBinaryClipboardPayload(
   })
 }
 
+export function hasFileTransferPayload(
+  transferData: TransferDataLike | null | undefined,
+): boolean {
+  if (!transferData) {
+    return false
+  }
+
+  if ((transferData.files?.length ?? 0) > 0) {
+    return true
+  }
+
+  const items = Array.from(transferData.items ?? [])
+  if (items.some((item) => item.kind === 'file')) {
+    return true
+  }
+
+  return Array.from(transferData.types ?? []).some(
+    (type) => type.toLowerCase() === 'files',
+  )
+}
+
+export function extractDroppedFilePaths(
+  transferData: TransferDataLike | null | undefined,
+  resolveFilePath: FilePathResolver | null | undefined,
+): string[] {
+  if (!transferData || !resolveFilePath) {
+    return []
+  }
+
+  return Array.from(transferData.files ?? [])
+    .map((file) => resolveFilePath(file)?.trim() ?? '')
+    .filter((path) => path.length > 0)
+}
+
+export function formatDroppedFilePaths(paths: ArrayLike<string>): string {
+  return Array.from(paths)
+    .map((path) => `"${path.replaceAll('"', '\\"')}"`)
+    .join(' ')
+}
+
 export function attachPlainTextPasteHandler(
   terminal: TerminalClipboardBinding,
+  options: {
+    resolveFilePath?: FilePathResolver
+  } = {},
 ): () => void {
+  const { resolveFilePath } = options
   const targets = [terminal.element, terminal.textarea].filter(
     (target): target is HTMLElement => target instanceof HTMLElement,
   )
@@ -139,6 +188,47 @@ export function attachPlainTextPasteHandler(
     if (hasBinaryClipboardPayload(pasteEvent.clipboardData)) {
       pasteEvent.preventDefault()
       pasteEvent.stopPropagation()
+    }
+  }
+
+  const handleDragOver = (event: Event) => {
+    const dragEvent = event as DragEvent
+    if (!hasFileTransferPayload(dragEvent.dataTransfer)) {
+      return
+    }
+
+    dragEvent.preventDefault()
+    dragEvent.stopPropagation()
+    if (dragEvent.dataTransfer) {
+      dragEvent.dataTransfer.dropEffect = 'copy'
+    }
+  }
+
+  const handleDrop = (event: Event) => {
+    const dragEvent = event as DragEvent
+    const droppedFilePaths = extractDroppedFilePaths(
+      dragEvent.dataTransfer,
+      resolveFilePath,
+    )
+
+    if (droppedFilePaths.length > 0) {
+      dragEvent.preventDefault()
+      dragEvent.stopPropagation()
+      terminal.paste(formatDroppedFilePaths(droppedFilePaths))
+      return
+    }
+
+    const text = extractClipboardText(dragEvent.dataTransfer)
+    if (text !== null) {
+      dragEvent.preventDefault()
+      dragEvent.stopPropagation()
+      terminal.paste(text)
+      return
+    }
+
+    if (hasBinaryClipboardPayload(dragEvent.dataTransfer)) {
+      dragEvent.preventDefault()
+      dragEvent.stopPropagation()
     }
   }
 
@@ -173,12 +263,16 @@ export function attachPlainTextPasteHandler(
 
   for (const target of targets) {
     target.addEventListener('paste', handlePaste, { capture: true })
+    target.addEventListener('dragover', handleDragOver, { capture: true })
+    target.addEventListener('drop', handleDrop, { capture: true })
     target.addEventListener('keydown', handleKeyDown, { capture: true })
   }
 
   return () => {
     for (const target of targets) {
       target.removeEventListener('paste', handlePaste, { capture: true })
+      target.removeEventListener('dragover', handleDragOver, { capture: true })
+      target.removeEventListener('drop', handleDrop, { capture: true })
       target.removeEventListener('keydown', handleKeyDown, { capture: true })
     }
   }

@@ -158,7 +158,9 @@ function TerminalSurface({
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(containerRef.current!)
-    const detachPasteHandler = attachPlainTextPasteHandler(terminal)
+    const detachPasteHandler = attachPlainTextPasteHandler(terminal, {
+      resolveFilePath: (file) => window.agentCli.getPathForFile(file),
+    })
     terminal.attachCustomKeyEventHandler((event) => {
       const shortcutInput = getTerminalShortcutInput(event)
       if (shortcutInput === null) {

@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   attachPlainTextPasteHandler,
   extractClipboardText,
+  extractDroppedFilePaths,
+  formatDroppedFilePaths,
+  hasFileTransferPayload,
   hasBinaryClipboardPayload,
 } from './terminalPaste'
 
@@ -10,6 +13,7 @@ interface ClipboardStub {
   getData: (type: string) => string
   items?: ArrayLike<{ kind: string; type: string }>
   types?: ArrayLike<string>
+  files?: ArrayLike<File>
 }
 
 function createClipboardData(data: {
@@ -79,6 +83,53 @@ describe('hasBinaryClipboardPayload', () => {
   })
 })
 
+describe('extractDroppedFilePaths', () => {
+  it('resolves absolute paths from dropped files', () => {
+    const droppedFile = new File(['report'], 'report.txt', {
+      type: 'text/plain',
+    })
+
+    const resolveFilePath = vi
+      .fn<(file: File) => string>()
+      .mockReturnValue('C:\\work\\report.txt')
+
+    expect(
+      extractDroppedFilePaths(
+        {
+          getData: () => '',
+          files: [droppedFile],
+        },
+        resolveFilePath,
+      ),
+    ).toEqual(['C:\\work\\report.txt'])
+    expect(resolveFilePath).toHaveBeenCalledWith(droppedFile)
+  })
+})
+
+describe('hasFileTransferPayload', () => {
+  it('detects file drags from transfer types before files are populated', () => {
+    expect(
+      hasFileTransferPayload({
+        getData: () => '',
+        types: ['Files'],
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('formatDroppedFilePaths', () => {
+  it('quotes each dropped file path before pasting into the terminal', () => {
+    expect(
+      formatDroppedFilePaths([
+        'C:\\Users\\hduan10\\Documents\\My Notes\\draft.txt',
+        'C:\\temp\\plain.txt',
+      ]),
+    ).toBe(
+      '"C:\\Users\\hduan10\\Documents\\My Notes\\draft.txt" "C:\\temp\\plain.txt"',
+    )
+  })
+})
+
 describe('attachPlainTextPasteHandler', () => {
   it('pastes plain text into the terminal and blocks the default event', () => {
     const element = document.createElement('div')
@@ -143,6 +194,87 @@ describe('attachPlainTextPasteHandler', () => {
 
     expect(paste).not.toHaveBeenCalled()
     expect(pasteEvent.defaultPrevented).toBe(true)
+
+    detach()
+  })
+
+  it('pastes dropped file paths into the terminal', () => {
+    const element = document.createElement('div')
+    const textarea = document.createElement('textarea')
+    element.append(textarea)
+
+    const droppedFile = new File(['report'], 'report.txt', {
+      type: 'text/plain',
+    })
+
+    const paste = vi.fn()
+    const detach = attachPlainTextPasteHandler(
+      {
+        element,
+        textarea,
+        paste,
+        hasSelection: () => false,
+        getSelection: () => '',
+      },
+      {
+        resolveFilePath: () => 'C:\\work\\report.txt',
+      },
+    )
+
+    const dropEvent = new Event('drop', {
+      bubbles: true,
+      cancelable: true,
+    })
+    Object.defineProperty(dropEvent, 'dataTransfer', {
+      value: {
+        getData: () => '',
+        files: [droppedFile],
+        items: [{ kind: 'file', type: 'text/plain' }],
+        types: ['Files'],
+      } satisfies ClipboardStub,
+    })
+
+    textarea.dispatchEvent(dropEvent)
+
+    expect(paste).toHaveBeenCalledWith('"C:\\work\\report.txt"')
+    expect(dropEvent.defaultPrevented).toBe(true)
+
+    detach()
+  })
+
+  it('accepts a file drag on dragover when only the Files type is present', () => {
+    const element = document.createElement('div')
+    const textarea = document.createElement('textarea')
+    element.append(textarea)
+
+    const detach = attachPlainTextPasteHandler({
+      element,
+      textarea,
+      paste: vi.fn(),
+      hasSelection: () => false,
+      getSelection: () => '',
+    })
+
+    const dragOverEvent = new Event('dragover', {
+      bubbles: true,
+      cancelable: true,
+    })
+    Object.defineProperty(dragOverEvent, 'dataTransfer', {
+      value: {
+        getData: () => '',
+        files: [],
+        items: [],
+        types: ['Files'],
+        dropEffect: 'none',
+      } satisfies ClipboardStub & { dropEffect: string },
+    })
+
+    textarea.dispatchEvent(dragOverEvent)
+
+    expect(dragOverEvent.defaultPrevented).toBe(true)
+    expect(
+      (dragOverEvent as DragEvent).dataTransfer?.dropEffect,
+    ).toBe('copy')
 
     detach()
   })
