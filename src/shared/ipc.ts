@@ -76,6 +76,7 @@ export interface AgentCliApi {
   applySkillAiMerge(proposal: SkillAiMergeProposal): Promise<SkillSyncResult>
   pickDirectory(defaultPath?: string): Promise<string | null>
   openPath(targetPath: string): Promise<void>
+  getPathForFile(file: File): string
   listWindowsCommandPrompts(): Promise<string[]>
   openWindowsCommandPrompt(sessionId: string, cwd: string): Promise<void>
   closeWindowsCommandPrompt(sessionId: string): Promise<void>
