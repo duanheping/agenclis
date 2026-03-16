@@ -21,7 +21,8 @@
     var(--sidebar-resizer-size)
     minmax(0, 1fr);
   grid-template-rows: var(--titlebar-height) minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   overflow: hidden;
   background: #111111;
 }
@@ -802,6 +803,7 @@
   flex: 1;
   min-height: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .workspace-shell__body--with-diff {
@@ -1233,16 +1235,20 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  max-height: 100%;
   border: 1px solid var(--border-soft);
   border-radius: 28px;
   background: rgba(24, 24, 24, 0.96);
+  overflow: hidden;
 }
 
-.project-diff-panel__header,
-.project-diff-panel__summary,
-.project-diff-panel__changes,
-.project-diff-panel__preview {
-  padding-inline: 16px;
+.project-diff-panel__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .project-diff-panel__header {
@@ -1250,8 +1256,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 16px;
-  padding-bottom: 16px;
+  padding: 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -1265,8 +1270,7 @@
 }
 
 .project-diff-panel__header h2,
-.project-diff-panel__preview-header h3,
-.project-diff-panel__group-header h3 {
+.project-diff-panel__preview-header h3 {
   margin: 0;
 }
 
@@ -1278,7 +1282,6 @@
 
 .project-diff-panel__branch,
 .project-diff-panel__preview-header p,
-.project-diff-panel__empty-copy,
 .project-diff-panel__preview-state p,
 .project-diff-panel__state p {
   margin: 0;
@@ -1292,66 +1295,21 @@
   font-size: 0.8rem;
 }
 
-.project-diff-panel__summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding-top: 16px;
-  padding-bottom: 16px;
-}
-
-.project-diff-panel__summary-card,
-.project-diff-panel__group,
+.project-diff-panel__changes,
 .project-diff-panel__preview {
   border: 1px solid var(--border-subtle);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.03);
 }
 
-.project-diff-panel__summary-card {
-  display: grid;
-  gap: 4px;
-  padding: 0.9rem 0.95rem;
-}
-
-.project-diff-panel__summary-card span,
-.project-diff-panel__group-header span {
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.project-diff-panel__summary-card strong {
-  color: var(--text-strong);
-  font-size: 1.08rem;
-  letter-spacing: -0.03em;
-}
-
-.project-diff-panel__summary-card small {
-  color: var(--text-base);
-  font-size: 0.8rem;
-}
-
 .project-diff-panel__changes {
   display: grid;
-  gap: 12px;
-  padding-bottom: 16px;
-  overflow: auto;
-}
-
-.project-diff-panel__group {
-  display: grid;
+  flex: 0 0 auto;
   gap: 10px;
+  max-height: min(34vh, 320px);
+  margin: 16px 16px 0;
   padding: 0.76rem;
-}
-
-.project-diff-panel__group-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  overflow: auto;
 }
 
 .project-diff-panel__file-list {
@@ -1454,9 +1412,8 @@
   gap: 10px;
   flex: 1;
   min-height: 0;
-  margin: 0 16px 16px;
-  padding-top: 0.86rem;
-  padding-bottom: 0.86rem;
+  margin: 16px;
+  padding: 0.86rem 16px;
   overflow: hidden;
 }
 
@@ -1477,6 +1434,7 @@
 .project-diff-panel__code {
   min-height: 0;
   margin: 0;
+  display: block;
   overflow: auto;
   padding: 0.9rem;
   border-radius: 14px;
@@ -1486,6 +1444,34 @@
   font-size: 0.74rem;
   line-height: 1.55;
   white-space: pre;
+}
+
+.project-diff-panel__code-line {
+  display: block;
+  min-height: 1.55em;
+  padding: 0 0.35rem;
+  margin-inline: -0.35rem;
+  border-radius: 8px;
+  white-space: pre;
+}
+
+.project-diff-panel__code-line--meta {
+  color: #9ca3af;
+}
+
+.project-diff-panel__code-line--hunk {
+  color: #f2dfbf;
+  background: rgba(227, 211, 182, 0.1);
+}
+
+.project-diff-panel__code-line--added {
+  color: #a9f0b5;
+  background: rgba(34, 84, 44, 0.42);
+}
+
+.project-diff-panel__code-line--removed {
+  color: #ffb8b8;
+  background: rgba(96, 35, 35, 0.42);
 }
 
 .project-diff-panel__preview-state,

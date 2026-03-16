@@ -5,10 +5,14 @@ import path from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+function normalizeMockPath(filePath: string): string {
+  return filePath.replace(/\//g, '\\').toLowerCase()
+}
+
 const mocks = vi.hoisted(() => {
   let persistedState: unknown = null
   let nextPid = 1000
-  const files = new Map<string, string>()
+  const files = new Map<string, { content: string; mtimeMs: number }>()
   const createTerminal = () => ({
     pid: nextPid++,
     write: vi.fn(),
@@ -27,10 +31,20 @@ const mocks = vi.hoisted(() => {
   return {
     terminals,
     spawn,
-    getFile: (filePath: string) => files.get(filePath),
+    getFile: (filePath: string) => files.get(filePath)?.content,
+    getFileMeta: (filePath: string) => files.get(filePath),
+    listFiles: () => Array.from(files.entries()),
     getPersistedState: () => persistedState,
-    setFile: (filePath: string, content: string) => {
-      files.set(filePath, content)
+    setFile: (filePath: string, content: string, modifiedAt?: string | number) => {
+      files.set(normalizeMockPath(filePath), {
+        content,
+        mtimeMs:
+          typeof modifiedAt === 'number'
+            ? modifiedAt
+            : modifiedAt
+              ? Date.parse(modifiedAt)
+              : Date.now(),
+      })
     },
     setPersistedState: (value: unknown) => {
       persistedState = structuredClone(value)
@@ -55,12 +69,100 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     readFileSync: (filePath: string) => {
-      const content = mocks.getFile(String(filePath))
+      const content = mocks.getFile(normalizeMockPath(String(filePath)))
       if (content === undefined) {
         throw new Error(`ENOENT: ${filePath}`)
       }
 
       return content
+    },
+  }
+})
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+
+  return {
+    ...actual,
+    open: async (filePath: string) => {
+      const meta = mocks.getFileMeta(normalizeMockPath(String(filePath)))
+      if (!meta) {
+        throw new Error(`ENOENT: ${filePath}`)
+      }
+
+      return {
+        read: async (
+          buffer: Buffer,
+          offset: number,
+          length: number,
+          position: number,
+        ) => {
+          const chunk = Buffer.from(meta.content).subarray(position, position + length)
+          chunk.copy(buffer, offset)
+          return {
+            bytesRead: chunk.length,
+            buffer,
+          }
+        },
+        readFile: async () => meta.content,
+        close: async () => undefined,
+      }
+    },
+    readdir: async (targetPath: string, options?: { withFileTypes?: boolean }) => {
+      const normalizedTargetPath = normalizeMockPath(String(targetPath)).replace(
+        /[\\]+$/,
+        '',
+      )
+      const entries = new Map<string, 'file' | 'directory'>()
+
+      for (const [filePath] of mocks.listFiles()) {
+        if (!filePath.startsWith(`${normalizedTargetPath}\\`)) {
+          continue
+        }
+
+        const relativePath = filePath.slice(normalizedTargetPath.length + 1)
+        const [entryName, ...remainingParts] = relativePath.split('\\')
+        if (!entryName) {
+          continue
+        }
+
+        entries.set(entryName, remainingParts.length > 0 ? 'directory' : 'file')
+      }
+
+      if (!options?.withFileTypes) {
+        return Array.from(entries.keys())
+      }
+
+      return Array.from(entries.entries()).map(([name, kind]) => ({
+        name,
+        isDirectory: () => kind === 'directory',
+        isFile: () => kind === 'file',
+      }))
+    },
+    stat: async (targetPath: string) => {
+      const normalizedTargetPath = normalizeMockPath(String(targetPath)).replace(
+        /[\\]+$/,
+        '',
+      )
+      const fileMeta = mocks.getFileMeta(normalizedTargetPath)
+      if (fileMeta) {
+        return {
+          mtimeMs: fileMeta.mtimeMs,
+        }
+      }
+
+      const childModificationTimes = mocks
+        .listFiles()
+        .filter(([filePath]) => filePath.startsWith(`${normalizedTargetPath}\\`))
+        .map(([, meta]) => meta.mtimeMs)
+
+      if (childModificationTimes.length > 0) {
+        return {
+          mtimeMs: Math.max(...childModificationTimes),
+        }
+      }
+
+      throw new Error(`ENOENT: ${targetPath}`)
     },
   }
 })
@@ -200,6 +302,95 @@ describe('SessionManager restore policy', () => {
 
     await manager.activateSession('session-a')
     expect(mocks.spawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('recovers a missing Codex resume id from local session history before restoring', async () => {
+    const onConfig = vi.fn()
+
+    mocks.setPersistedState({
+      projects: [
+        {
+          id: 'project-1',
+          title: 'Workspace',
+          rootPath: 'C:\\repo',
+          createdAt: '2026-03-15T18:10:00.000Z',
+          updatedAt: '2026-03-15T18:12:00.000Z',
+        },
+      ],
+      sessions: [
+        {
+          id: 'session-a',
+          projectId: 'project-1',
+          title: 'triage ECG-205709',
+          startupCommand: 'codex',
+          pendingFirstPromptTitle: false,
+          cwd: 'C:\\repo',
+          shell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+          createdAt: '2026-03-15T18:10:24.756Z',
+          updatedAt: '2026-03-15T18:12:00.000Z',
+        },
+      ],
+      activeSessionId: 'session-a',
+    })
+
+    const sessionFilePath = path.join(
+      os.homedir(),
+      '.codex',
+      'sessions',
+      '2026',
+      '03',
+      '15',
+      'rollout-2026-03-15T18-10-31-019cf7a4-db19-78a0-a9b1-b9e3d2b0126a.jsonl',
+    )
+    mocks.setFile(
+      sessionFilePath,
+      [
+        '{"timestamp":"2026-03-15T18:10:31.000Z","type":"session_meta","payload":{"id":"019cf7a4-db19-78a0-a9b1-b9e3d2b0126a","timestamp":"2026-03-15T18:10:31.000Z","cwd":"C:\\\\repo","originator":"codex_cli_rs"}}',
+        '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"triage ECG-205709"}]}}',
+      ].join('\n'),
+      '2026-03-15T18:10:35.000Z',
+    )
+
+    const manager = new SessionManager({
+      onData: () => undefined,
+      onConfig,
+      onRuntime: () => undefined,
+      onExit: () => undefined,
+    })
+
+    await manager.restoreSessions()
+    await vi.waitFor(() => {
+      expect(mocks.spawn).toHaveBeenCalledTimes(1)
+    })
+
+    const firstSpawnArgs = (mocks.spawn.mock.calls[0] as unknown[] | undefined)?.[1]
+    expect(firstSpawnArgs).toEqual([
+      '-NoLogo',
+      '-NoExit',
+      '-Command',
+      'codex resume 019cf7a4-db19-78a0-a9b1-b9e3d2b0126a',
+    ])
+
+    expect(onConfig).toHaveBeenCalledWith({
+      sessionId: 'session-a',
+      config: expect.objectContaining({
+        externalSession: {
+          provider: 'codex',
+          sessionId: '019cf7a4-db19-78a0-a9b1-b9e3d2b0126a',
+          detectedAt: expect.any(String),
+        },
+      }),
+    })
+
+    expect(
+      (
+        mocks.getPersistedState() as {
+          sessions: Array<{
+            externalSession?: { sessionId: string }
+          }>
+        }
+      ).sessions[0]?.externalSession?.sessionId,
+    ).toBe('019cf7a4-db19-78a0-a9b1-b9e3d2b0126a')
   })
 })
 

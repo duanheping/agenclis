@@ -20,6 +20,25 @@ interface ProjectDiffPanelProps {
   onSelectFile: (file: ProjectGitFileChange) => void
 }
 
+const DIFF_METADATA_PREFIXES = [
+  'diff --git',
+  'index ',
+  '--- ',
+  '+++ ',
+  'rename from ',
+  'rename to ',
+  'copy from ',
+  'copy to ',
+  'similarity index ',
+  'dissimilarity index ',
+  'new file mode ',
+  'deleted file mode ',
+  'old mode ',
+  'new mode ',
+  'Binary files ',
+  '\\ ',
+] as const
+
 function getProjectLabel(projectPath: string | null): string {
   if (!projectPath) {
     return 'Project'
@@ -51,57 +70,24 @@ function formatChangeStatus(status: ProjectGitFileChange['status']): string {
   }
 }
 
-function renderFileGroup(
-  title: string,
-  files: ProjectGitFileChange[],
-  selectedFile: ProjectDiffSelection | null,
-  onSelectFile: (file: ProjectGitFileChange) => void,
-) {
-  return (
-    <section className="project-diff-panel__group">
-      <header className="project-diff-panel__group-header">
-        <h3>{title}</h3>
-        <span>{files.length}</span>
-      </header>
+function getDiffLineClassName(line: string): string {
+  if (line.startsWith('@@')) {
+    return 'project-diff-panel__code-line project-diff-panel__code-line--hunk'
+  }
 
-      {files.length > 0 ? (
-        <div className="project-diff-panel__file-list">
-          {files.map((file) => {
-            const isActive =
-              selectedFile?.path === file.path && selectedFile.staged === file.staged
+  if (DIFF_METADATA_PREFIXES.some((prefix) => line.startsWith(prefix))) {
+    return 'project-diff-panel__code-line project-diff-panel__code-line--meta'
+  }
 
-            return (
-              <button
-                key={`${file.staged ? 'staged' : 'unstaged'}:${file.path}`}
-                type="button"
-                className={`project-diff-panel__file${isActive ? ' is-active' : ''}`}
-                onClick={() => onSelectFile(file)}
-              >
-                <span className="project-diff-panel__file-main">
-                  <span className="project-diff-panel__file-path">{file.path}</span>
-                  <span
-                    className={`project-diff-panel__status-badge is-${file.status}`}
-                  >
-                    {formatChangeStatus(file.status)}
-                  </span>
-                </span>
-                <span className="project-diff-panel__file-meta">
-                  <span className="project-diff-panel__file-lines is-added">
-                    +{file.additions}
-                  </span>
-                  <span className="project-diff-panel__file-lines is-removed">
-                    -{file.deletions}
-                  </span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      ) : (
-        <p className="project-diff-panel__empty-copy">No {title.toLowerCase()} changes.</p>
-      )}
-    </section>
-  )
+  if (line.startsWith('+')) {
+    return 'project-diff-panel__code-line project-diff-panel__code-line--added'
+  }
+
+  if (line.startsWith('-')) {
+    return 'project-diff-panel__code-line project-diff-panel__code-line--removed'
+  }
+
+  return 'project-diff-panel__code-line'
 }
 
 export function ProjectDiffPanel({
@@ -118,6 +104,9 @@ export function ProjectDiffPanel({
   const repoLabel = getProjectLabel(overview?.repoRoot ?? overview?.projectPath ?? null)
   const totalFiles =
     (overview?.unstagedFiles.length ?? 0) + (overview?.stagedFiles.length ?? 0)
+  const changedFiles = overview
+    ? [...overview.unstagedFiles, ...overview.stagedFiles]
+    : []
 
   return (
     <aside className="project-diff-panel">
@@ -139,99 +128,113 @@ export function ProjectDiffPanel({
         </button>
       </header>
 
-      {errorMessage ? (
-        <p className="project-diff-panel__error">{errorMessage}</p>
-      ) : null}
+      <div className="project-diff-panel__body">
+        {errorMessage ? (
+          <p className="project-diff-panel__error">{errorMessage}</p>
+        ) : null}
 
-      {loading && !overview ? (
-        <div className="project-diff-panel__state">
-          <p>Loading project changes…</p>
-        </div>
-      ) : null}
-
-      {!loading && overview && !overview.isGitRepository ? (
-        <div className="project-diff-panel__state">
-          <p>This project is not inside a Git repository.</p>
-        </div>
-      ) : null}
-
-      {!loading &&
-      overview &&
-      overview.isGitRepository &&
-      totalFiles === 0 &&
-      !errorMessage ? (
-        <div className="project-diff-panel__state">
-          <p>No local changes.</p>
-        </div>
-      ) : null}
-
-      {overview?.isGitRepository && totalFiles > 0 ? (
-        <>
-          <div className="project-diff-panel__summary">
-            <div className="project-diff-panel__summary-card">
-              <span>Unstaged</span>
-              <strong>{overview.unstagedFiles.length}</strong>
-              <small>
-                +{overview.unstagedTotals.additions} -{overview.unstagedTotals.deletions}
-              </small>
-            </div>
-            <div className="project-diff-panel__summary-card">
-              <span>Staged</span>
-              <strong>{overview.stagedFiles.length}</strong>
-              <small>
-                +{overview.stagedTotals.additions} -{overview.stagedTotals.deletions}
-              </small>
-            </div>
+        {loading && !overview ? (
+          <div className="project-diff-panel__state">
+            <p>Loading project changes…</p>
           </div>
+        ) : null}
 
-          <div className="project-diff-panel__changes">
-            {renderFileGroup(
-              'Unstaged',
-              overview.unstagedFiles,
-              selectedFile,
-              onSelectFile,
-            )}
-            {renderFileGroup('Staged', overview.stagedFiles, selectedFile, onSelectFile)}
+        {!loading && overview && !overview.isGitRepository ? (
+          <div className="project-diff-panel__state">
+            <p>This project is not inside a Git repository.</p>
           </div>
+        ) : null}
 
-          <section className="project-diff-panel__preview">
-            <header className="project-diff-panel__preview-header">
-              <div>
-                <h3>{selectedFile ? selectedFile.path : 'Select a file'}</h3>
-                <p>
-                  {selectedFile
-                    ? selectedFile.staged
-                      ? 'Staged diff'
-                      : 'Unstaged diff'
-                    : 'Choose a file to inspect the patch.'}
-                </p>
+        {!loading &&
+        overview &&
+        overview.isGitRepository &&
+        totalFiles === 0 &&
+        !errorMessage ? (
+          <div className="project-diff-panel__state">
+            <p>No local changes.</p>
+          </div>
+        ) : null}
+
+        {overview?.isGitRepository && totalFiles > 0 ? (
+          <>
+            <div className="project-diff-panel__changes">
+              <div className="project-diff-panel__file-list">
+                {changedFiles.map((file) => {
+                  const isActive =
+                    selectedFile?.path === file.path &&
+                    selectedFile.staged === file.staged
+
+                  return (
+                    <button
+                      key={`${file.staged ? 'staged' : 'unstaged'}:${file.path}`}
+                      type="button"
+                      className={`project-diff-panel__file${isActive ? ' is-active' : ''}`}
+                      onClick={() => onSelectFile(file)}
+                    >
+                      <span className="project-diff-panel__file-main">
+                        <span className="project-diff-panel__file-path">{file.path}</span>
+                        <span
+                          className={`project-diff-panel__status-badge is-${file.status}`}
+                        >
+                          {formatChangeStatus(file.status)}
+                        </span>
+                      </span>
+                      <span className="project-diff-panel__file-meta">
+                        <span className="project-diff-panel__file-lines is-added">
+                          +{file.additions}
+                        </span>
+                        <span className="project-diff-panel__file-lines is-removed">
+                          -{file.deletions}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
-            </header>
+            </div>
 
-            {diffErrorMessage ? (
-              <p className="project-diff-panel__error">{diffErrorMessage}</p>
-            ) : null}
-
-            {selectedFile ? (
-              diffLoading ? (
-                <div className="project-diff-panel__preview-state">
-                  <p>Loading diff…</p>
+            <section className="project-diff-panel__preview">
+              <header className="project-diff-panel__preview-header">
+                <div>
+                  <h3>{selectedFile ? selectedFile.path : 'Select a file'}</h3>
+                  <p>
+                    {selectedFile ? 'Patch preview' : 'Choose a file to inspect the patch.'}
+                  </p>
                 </div>
+              </header>
+
+              {diffErrorMessage ? (
+                <p className="project-diff-panel__error">{diffErrorMessage}</p>
+              ) : null}
+
+              {selectedFile ? (
+                diffLoading ? (
+                  <div className="project-diff-panel__preview-state">
+                    <p>Loading diff…</p>
+                  </div>
+                ) : (
+                  <pre className="project-diff-panel__code">
+                    {diffContent?.trim()
+                      ? diffContent.split(/\r?\n/u).map((line, index) => (
+                          <span
+                            key={`${index}:${line}`}
+                            className={getDiffLineClassName(line)}
+                          >
+                            {line || ' '}
+                          </span>
+                        ))
+                      : 'No diff output is available for this file yet.'}
+                  </pre>
+                )
               ) : (
-                <pre className="project-diff-panel__code">
-                  {diffContent?.trim()
-                    ? diffContent
-                    : 'No diff output is available for this file yet.'}
-                </pre>
-              )
-            ) : (
-              <div className="project-diff-panel__preview-state">
-                <p>Select a changed file to load its patch.</p>
-              </div>
-            )}
-          </section>
-        </>
-      ) : null}
+                <div className="project-diff-panel__preview-state">
+                  <p>Select a changed file to load its patch.</p>
+                </div>
+              )}
+            </section>
+          </>
+        ) : null}
+      </div>
     </aside>
   )
 }
