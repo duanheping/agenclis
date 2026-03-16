@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -216,6 +216,28 @@ describe('SessionSidebar', () => {
       'document-topic-search',
       'discovered',
     )
+  })
+
+  it('allows spaces while renaming a session', async () => {
+    const user = userEvent.setup()
+    const onRename = vi.fn().mockResolvedValue(undefined)
+
+    renderSidebar({
+      onRename,
+    })
+
+    fireEvent.contextMenu(
+      screen.getByRole('button', { name: /why you don't show session title/i }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Rename session' }))
+
+    const input = screen.getByRole('textbox')
+    await user.clear(input)
+    await user.type(input, 'triage ECG 205709')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onRename).toHaveBeenCalledWith('session-1', 'triage ECG 205709')
   })
 
   it('keeps library setup feedback inline while hiding sync diagnostics', async () => {

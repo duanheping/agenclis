@@ -51,6 +51,7 @@ interface DetectedExternalSession {
   cwd: string
   startedAt: number
   summary?: string
+  sourcePath?: string
 }
 
 type StoredSessionConfig = Omit<SessionConfig, 'projectId'> & {
@@ -65,6 +66,8 @@ const CODEX_SESSION_DISCOVERY_LOOKBACK_MS = 5_000
 const CODEX_SESSION_DISCOVERY_INTERVAL_MS = 750
 const CODEX_SESSION_DISCOVERY_ATTEMPTS = 24
 const CODEX_SESSION_DISCOVERY_FILE_LIMIT = 32
+const HISTORICAL_EXTERNAL_SESSION_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1_000
+const EXTERNAL_SESSION_TITLE_SCAN_BYTES = 131_072
 const FIRST_PROMPT_TITLE_LIMIT = 80
 
 const require = createRequire(import.meta.url)
@@ -352,6 +355,21 @@ export class SessionManager {
         this.persist()
       }
 
+      const resumableProvider =
+        normalizedConfig.externalSession === undefined
+          ? this.detectResumableProvider(normalizedConfig.startupCommand)
+          : null
+      if (resumableProvider) {
+        const historicalSession = await this.findHistoricalExternalSession(
+          normalizedConfig,
+          resumableProvider,
+        )
+        if (historicalSession) {
+          this.attachExternalSession(normalizedConfig, historicalSession)
+          normalizedConfig = this.requireConfig(config.id)
+        }
+      }
+
       const launchCommand = this.resolveStartupCommand(normalizedConfig)
       const launchesInline = supportsInlineShellCommand(shell)
       const terminal = nodePty.spawn(
@@ -584,6 +602,99 @@ export class SessionManager {
     return match ?? null
   }
 
+  private async findHistoricalExternalSession(
+    config: SessionConfig,
+    provider: 'codex' | 'copilot',
+  ): Promise<DetectedExternalSession | null> {
+    const referenceTimestamps = this.getExternalSessionReferenceTimes(config)
+    if (referenceTimestamps.length === 0) {
+      return null
+    }
+
+    const candidates = await this.listRecentExternalSessions(
+      provider,
+      Math.max(
+        0,
+        Math.min(...referenceTimestamps) - HISTORICAL_EXTERNAL_SESSION_LOOKBACK_MS,
+      ),
+    )
+    const normalizedCwd = this.normalizePath(config.cwd)
+    const defaultTitle = deriveSessionTitle(undefined, config.startupCommand, config.cwd)
+    const normalizedTitle = config.title.trim().toLowerCase()
+    const shouldMatchTitle =
+      normalizedTitle.length > 0 &&
+      normalizedTitle !== defaultTitle.trim().toLowerCase()
+
+    const scoredCandidates = await Promise.all(
+      candidates
+        .filter((candidate) => this.normalizePath(candidate.cwd) === normalizedCwd)
+        .filter((candidate) => {
+          const claimedBy = this.claimedExternalSessions.get(
+            this.getExternalSessionClaimKey(candidate.provider, candidate.sessionId),
+          )
+          return !claimedBy || claimedBy === config.id
+        })
+        .map(async (candidate) => ({
+          candidate,
+          titleMatches: shouldMatchTitle
+            ? await this.doesExternalSessionMatchTitle(candidate, normalizedTitle)
+            : false,
+          distance: Math.min(
+            ...referenceTimestamps.map((referenceTime) =>
+              Math.abs(candidate.startedAt - referenceTime),
+            ),
+          ),
+        })),
+    )
+
+    return scoredCandidates
+      .sort((left, right) => {
+        if (left.titleMatches !== right.titleMatches) {
+          return left.titleMatches ? -1 : 1
+        }
+
+        return (
+          left.distance - right.distance ||
+          right.candidate.startedAt - left.candidate.startedAt
+        )
+      })[0]?.candidate ?? null
+  }
+
+  private getExternalSessionReferenceTimes(config: SessionConfig): number[] {
+    return [config.updatedAt, config.createdAt]
+      .map((value) => Date.parse(value))
+      .filter((value) => !Number.isNaN(value))
+  }
+
+  private async doesExternalSessionMatchTitle(
+    candidate: DetectedExternalSession,
+    normalizedTitle: string,
+  ): Promise<boolean> {
+    if (candidate.summary) {
+      const normalizedSummary = candidate.summary.trim().toLowerCase()
+      if (
+        normalizedSummary.includes(normalizedTitle) ||
+        normalizedTitle.includes(normalizedSummary)
+      ) {
+        return true
+      }
+    }
+
+    if (candidate.provider !== 'codex' || !candidate.sourcePath) {
+      return false
+    }
+
+    const prefix = await this.readFilePrefix(
+      candidate.sourcePath,
+      EXTERNAL_SESSION_TITLE_SCAN_BYTES,
+    )
+    if (!prefix) {
+      return false
+    }
+
+    return prefix.toLowerCase().includes(normalizedTitle)
+  }
+
   private async listRecentExternalSessions(
     provider: 'codex' | 'copilot',
     sinceMs: number,
@@ -707,20 +818,26 @@ export class SessionManager {
   }
 
   private getCodexSessionDayDirectories(sinceMs: number): string[] {
-    const days = [new Date(sinceMs), new Date()]
+    const directories: string[] = []
+    const currentDay = new Date(sinceMs)
+    currentDay.setHours(0, 0, 0, 0)
 
-    return Array.from(
-      new Set(
-        days.map((value) =>
-          path.join(
-            CODEX_SESSIONS_ROOT,
-            `${value.getFullYear()}`,
-            `${value.getMonth() + 1}`.padStart(2, '0'),
-            `${value.getDate()}`.padStart(2, '0'),
-          ),
+    const endDay = new Date()
+    endDay.setHours(0, 0, 0, 0)
+
+    while (currentDay.getTime() <= endDay.getTime()) {
+      directories.push(
+        path.join(
+          CODEX_SESSIONS_ROOT,
+          `${currentDay.getFullYear()}`,
+          `${currentDay.getMonth() + 1}`.padStart(2, '0'),
+          `${currentDay.getDate()}`.padStart(2, '0'),
         ),
-      ),
-    )
+      )
+      currentDay.setDate(currentDay.getDate() + 1)
+    }
+
+    return directories
   }
 
   private async readCodexSessionMeta(
@@ -749,7 +866,26 @@ export class SessionManager {
         timestamp: meta.timestamp,
         cwd: meta.cwd,
         startedAt,
+        sourcePath: filePath,
       }
+    } catch {
+      return null
+    } finally {
+      await handle?.close().catch(() => undefined)
+    }
+  }
+
+  private async readFilePrefix(
+    filePath: string,
+    byteLimit: number,
+  ): Promise<string | null> {
+    let handle
+
+    try {
+      handle = await open(filePath, 'r')
+      const buffer = Buffer.alloc(byteLimit)
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+      return buffer.toString('utf8', 0, bytesRead)
     } catch {
       return null
     } finally {
@@ -782,6 +918,7 @@ export class SessionManager {
         cwd: meta.cwd,
         startedAt,
         summary: meta.summary,
+        sourcePath: filePath,
       }
     } catch {
       return null

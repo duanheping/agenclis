@@ -564,6 +564,10 @@ export function SessionSidebar({
                           }}
                           onContextMenu={(event) => openSessionContextMenu(event, session)}
                           onKeyDown={(event) => {
+                            if (event.target !== event.currentTarget) {
+                              return
+                            }
+
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault()
                               void onSelect(session.config.id)

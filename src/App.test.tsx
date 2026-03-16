@@ -565,6 +565,9 @@ describe('App skills settings', () => {
     await waitFor(() => {
       expect(screen.getByText('Changes')).toBeInTheDocument()
       expect(screen.getAllByText('src/App.tsx')).toHaveLength(2)
+      expect(screen.queryByText('Unstaged')).not.toBeInTheDocument()
+      expect(screen.queryByText('Staged')).not.toBeInTheDocument()
+      expect(screen.getByText('Patch preview')).toBeInTheDocument()
       expect(screen.getByText(/diff --git a\/src\/App.tsx/i)).toBeInTheDocument()
     })
 
