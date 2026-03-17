@@ -36,6 +36,7 @@ import {
   extractCodexSessionMeta,
   supportsCodexSessionResume,
 } from './codexCli'
+import { createProjectSessionWorktree } from './projectWorktree'
 import {
   buildShellArgs,
   resolveShellCommand,
@@ -212,7 +213,15 @@ export class SessionManager {
     const project = this.resolveProjectForCreate(input)
     const id = crypto.randomUUID()
     const shell = resolveShellCommand()
-    const cwd = resolveSessionCwd(input.cwd, project.rootPath)
+    const cwd = input.createWithWorktree
+      ? (
+          await createProjectSessionWorktree({
+            projectRootPath: project.rootPath,
+            sessionId: id,
+            createdAt: now,
+          })
+        ).cwd
+      : resolveSessionCwd(input.cwd, project.rootPath)
 
     const config: SessionConfig = {
       id,
@@ -235,7 +244,7 @@ export class SessionManager {
     this.activeSessionId = id
     this.persist()
 
-    await this.startSession(config)
+    await this.startSession(config, { allowHistoricalResume: false })
     return this.snapshotFor(id)
   }
 
@@ -330,7 +339,12 @@ export class SessionManager {
     }
   }
 
-  private async startSession(config: SessionConfig): Promise<void> {
+  private async startSession(
+    config: SessionConfig,
+    options: {
+      allowHistoricalResume?: boolean
+    } = {},
+  ): Promise<void> {
     this.stopSession(config.id, true)
     this.cancelExternalSessionDetection(config.id)
     this.pendingFirstPromptBuffers.delete(config.id)
@@ -359,7 +373,7 @@ export class SessionManager {
         normalizedConfig.externalSession === undefined
           ? this.detectResumableProvider(normalizedConfig.startupCommand)
           : null
-      if (resumableProvider) {
+      if (resumableProvider && options.allowHistoricalResume !== false) {
         const historicalSession = await this.findHistoricalExternalSession(
           normalizedConfig,
           resumableProvider,

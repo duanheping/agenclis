@@ -259,6 +259,9 @@ export function CreateSessionDialog({
         payload.projectRootPath = formState.projectRootPath
       } else {
         payload.projectId = formState.projectSelection
+        if (compactProjectSessionFlow) {
+          payload.createWithWorktree = true
+        }
       }
 
       await onCreateSession(payload)
@@ -490,7 +493,7 @@ export function CreateSessionDialog({
                 ))}
               </div>
               <span className="field-hint">
-                The session uses the selected project root as its working directory.
+                A fresh git worktree and branch will be created for this session.
               </span>
             </label>
           ) : (

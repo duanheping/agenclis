@@ -262,13 +262,14 @@ function App() {
 
   const sessions = flattenSessions(projects)
   const activeProject = findActiveProject(projects, activeSessionId)
-  const activeProjectPath = activeProject?.config.rootPath ?? null
   const activeSession =
     sessions.find((session) => session.config.id === activeSessionId) ?? null
+  const activeWorkspacePath =
+    activeSession?.config.cwd ?? activeProject?.config.rootPath ?? null
   const activeSessionHasWindowsCommandPrompt =
     activeSessionId !== null &&
     windowsCommandPromptSessionIds.includes(activeSessionId)
-  const showDiffPanel = hydrated && diffPanelOpen && Boolean(activeProjectPath)
+  const showDiffPanel = hydrated && diffPanelOpen && Boolean(activeWorkspacePath)
   const featuredProject = activeProject ?? projects[0] ?? null
   const showWelcomeWorkspace = hydrated && sessions.length === 0
 
@@ -437,7 +438,7 @@ function App() {
     setSkillSyncStatus(status)
   }
 
-  const refreshProjectGitState = async (projectPath = activeProjectPath) => {
+  const refreshProjectGitState = async (projectPath = activeWorkspacePath) => {
     if (!agentCli) {
       throw new Error('Agent bridge is unavailable.')
     }
@@ -683,10 +684,10 @@ function App() {
 
   useEffect(() => {
     setProjectOpenMenuOpen(false)
-  }, [activeProjectPath])
+  }, [activeWorkspacePath])
 
   useEffect(() => {
-    if (!agentCli || !activeProjectPath) {
+    if (!agentCli || !activeWorkspacePath) {
       setProjectGitOverview(null)
       setProjectGitLoading(false)
       setProjectGitErrorMessage(null)
@@ -704,7 +705,7 @@ function App() {
       }
 
       try {
-        const overview = await agentCli.getProjectGitOverview(activeProjectPath)
+        const overview = await agentCli.getProjectGitOverview(activeWorkspacePath)
         if (cancelled) {
           return
         }
@@ -738,7 +739,7 @@ function App() {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [activeProjectPath, agentCli, diffPanelOpen])
+  }, [activeWorkspacePath, agentCli, diffPanelOpen])
 
   useEffect(() => {
     const availableFiles = [
@@ -775,7 +776,7 @@ function App() {
   }, [projectGitOverview, selectedProjectDiff])
 
   useEffect(() => {
-    if (!agentCli || !activeProjectPath || !diffPanelOpen || !selectedProjectDiff) {
+    if (!agentCli || !activeWorkspacePath || !diffPanelOpen || !selectedProjectDiff) {
       setProjectGitDiffLoading(false)
       setProjectGitDiffContent(null)
       setProjectGitDiffErrorMessage(null)
@@ -789,7 +790,7 @@ function App() {
 
       try {
         const diff = await agentCli.getProjectGitDiff(
-          activeProjectPath,
+          activeWorkspacePath,
           selectedProjectDiff.path,
           selectedProjectDiff.staged,
         )
@@ -816,7 +817,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [activeProjectPath, agentCli, diffPanelOpen, selectedProjectDiff])
+  }, [activeWorkspacePath, agentCli, diffPanelOpen, selectedProjectDiff])
 
   useEffect(() => {
     if (!skillAiMergeProposal || !skillSyncStatus) {
@@ -950,15 +951,15 @@ function App() {
   }
 
   const handleOpenProject = async (target: ProjectOpenTarget) => {
-    if (!agentCli || !activeProjectPath) {
-      setErrorMessage('There is no active project to open.')
+    if (!agentCli || !activeWorkspacePath) {
+      setErrorMessage('There is no active workspace to open.')
       return
     }
 
     try {
       setErrorMessage(null)
       setProjectOpenMenuOpen(false)
-      await agentCli.openProject(target, activeProjectPath)
+      await agentCli.openProject(target, activeWorkspacePath)
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     }
@@ -978,14 +979,14 @@ function App() {
   }
 
   const handleRefreshProjectDiff = async () => {
-    if (!agentCli || !activeProjectPath) {
+    if (!agentCli || !activeWorkspacePath) {
       return
     }
 
     setProjectGitLoading(true)
 
     try {
-      const overview = await refreshProjectGitState(activeProjectPath)
+      const overview = await refreshProjectGitState(activeWorkspacePath)
       setProjectGitErrorMessage(null)
 
       if (!diffPanelOpen && overview?.isGitRepository) {
@@ -1244,7 +1245,7 @@ function App() {
               className={`titlebar-action titlebar-action--menu${projectOpenMenuOpen ? ' is-active' : ''}`}
               aria-label="Open project"
               aria-expanded={projectOpenMenuOpen}
-              disabled={!activeProjectPath}
+              disabled={!activeWorkspacePath}
               onClick={() => setProjectOpenMenuOpen((current) => !current)}
             >
               <span className="titlebar-action__label">Open</span>
@@ -1263,7 +1264,7 @@ function App() {
                 >
                   <span className="titlebar-menu__item-title">VS Code</span>
                   <span className="titlebar-menu__item-meta">
-                    Open the project folder in Visual Studio Code.
+                    Open the active workspace in Visual Studio Code.
                   </span>
                 </button>
                 <button
@@ -1274,7 +1275,7 @@ function App() {
                 >
                   <span className="titlebar-menu__item-title">File Explorer</span>
                   <span className="titlebar-menu__item-meta">
-                    Browse the active project root in Explorer.
+                    Browse the active session workspace in Explorer.
                   </span>
                 </button>
                 <button
@@ -1285,7 +1286,7 @@ function App() {
                 >
                   <span className="titlebar-menu__item-title">Terminal</span>
                   <span className="titlebar-menu__item-meta">
-                    Launch a terminal rooted in the active project.
+                    Launch a terminal rooted in the active session workspace.
                   </span>
                 </button>
               </div>
@@ -1308,7 +1309,7 @@ function App() {
             type="button"
             className={`titlebar-action${diffPanelOpen ? ' is-active' : ''}`}
             aria-label="Toggle diff panel"
-            disabled={!activeProjectPath}
+            disabled={!activeWorkspacePath}
             onClick={handleToggleDiffPanel}
           >
             <span className="titlebar-action__label">Diff</span>

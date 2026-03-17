@@ -42,6 +42,9 @@ describe('CreateSessionDialog', () => {
     expect(
       screen.getByText('C:\\Users\\hduan10\\Documents\\repo\\MSAR43_S32G'),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('A fresh git worktree and branch will be created for this session.'),
+    ).toBeInTheDocument()
     expect(screen.queryByText('Session title (optional)')).not.toBeInTheDocument()
     expect(screen.queryByText('Startup command')).not.toBeInTheDocument()
     expect(
@@ -57,6 +60,7 @@ describe('CreateSessionDialog', () => {
       title: '',
       startupCommand: 'copilot',
       cwd: 'C:\\Users\\hduan10\\Documents\\repo\\MSAR43_S32G',
+      createWithWorktree: true,
     })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
