@@ -844,6 +844,17 @@ export class SkillLibraryManager {
       })
     }
 
+    const traceStep = (
+      stepId: FullSyncStepId,
+      detail: string,
+      message: string,
+      level: FullSyncLogLevel = 'info',
+    ) => {
+      setStep(stepId, 'running', detail)
+      addLog(message, stepId, level)
+      emit(stepId)
+    }
+
     const describeSyncDirectoryResult = (result: SyncDirectoryResult): string => {
       const details = []
 
@@ -1000,12 +1011,16 @@ export class SkillLibraryManager {
           sourcesBySkill.set(skillName, sources)
 
           try {
+            setStep('ai-merge', 'running', `Preparing ${skillName}`)
             addLog(`Generating merge proposal for ${skillName}.`, 'ai-merge')
             emit('ai-merge')
             const proposal = await generateSkillMerge(
               settings.primaryMergeAgent,
               skillName,
               sources,
+              (event) => {
+                traceStep('ai-merge', event.detail, event.message, event.level ?? 'info')
+              },
             )
             proposals.set(skillName, proposal)
             addLog(
@@ -1013,6 +1028,11 @@ export class SkillLibraryManager {
               'ai-merge',
               'success',
             )
+            addLog(`Merge summary for ${skillName}: ${proposal.summary}`, 'ai-merge')
+            addLog(`Merge rationale for ${skillName}: ${proposal.rationale}`, 'ai-merge')
+            for (const warning of proposal.warnings) {
+              addLog(`Merge warning for ${skillName}: ${warning}`, 'ai-merge', 'warning')
+            }
           } catch (error) {
             // If AI merge fails for a skill, fall back to the newer version
             const codexTs = codex?.modifiedTimestamp ?? 0
@@ -1061,14 +1081,23 @@ export class SkillLibraryManager {
             const sources = sourcesBySkill.get(skillName) ?? []
 
             try {
+              setStep('review', 'running', `Preparing review for ${skillName}`)
               addLog(`Requesting review for ${skillName}.`, 'review')
               emit('review')
               const review = await reviewSkillMerge(
                 settings.reviewMergeAgent,
                 proposal,
                 sources,
+                (event) => {
+                  traceStep('review', event.detail, event.message, event.level ?? 'info')
+                },
               )
               proposal.review = review
+              addLog(`Review summary for ${skillName}: ${review.summary}`, 'review')
+              addLog(`Review rationale for ${skillName}: ${review.rationale}`, 'review')
+              for (const warning of review.warnings) {
+                addLog(`Review warning for ${skillName}: ${warning}`, 'review', 'warning')
+              }
 
               if (review.status === 'changes-requested') {
                 // Secondary agent rejected — feed suggestions back to primary for a refined merge
@@ -1080,10 +1109,18 @@ export class SkillLibraryManager {
                     proposal,
                     review,
                     sources,
+                    (event) => {
+                      traceStep('review', event.detail, event.message, event.level ?? 'info')
+                    },
                   )
                   proposals.set(skillName, refinedProposal)
                   refined++
                   addLog(`Refined the ${skillName} proposal after review feedback.`, 'review', 'success')
+                  addLog(`Refined merge summary for ${skillName}: ${refinedProposal.summary}`, 'review')
+                  addLog(`Refined merge rationale for ${skillName}: ${refinedProposal.rationale}`, 'review')
+                  for (const warning of refinedProposal.warnings) {
+                    addLog(`Refined merge warning for ${skillName}: ${warning}`, 'review', 'warning')
+                  }
                 } catch {
                   // If refinement fails, keep the original proposal
                   approved++

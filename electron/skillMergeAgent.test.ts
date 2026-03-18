@@ -198,6 +198,42 @@ describe('skillMergeAgent', () => {
     )
   })
 
+  it('emits execution trace updates while generating a merge proposal', async () => {
+    const progressMessages: string[] = []
+
+    await generateSkillMerge(
+      'claude',
+      'document-topic-search',
+      [
+        {
+          root: 'library',
+          files: new Map([
+            ['SKILL.md', Buffer.from('# codex\n', 'utf8')],
+          ]),
+        },
+        {
+          root: 'discovered',
+          files: new Map([
+            ['SKILL.md', Buffer.from('# claude\n', 'utf8')],
+          ]),
+        },
+      ],
+      (event) => {
+        progressMessages.push(`${event.detail} :: ${event.message}`)
+      },
+    )
+
+    expect(progressMessages).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Preparing document-topic-search'),
+        expect.stringContaining('Launching Claude'),
+        expect.stringContaining('Received stdout chunk 1 from Claude'),
+        expect.stringContaining('Parsing document-topic-search merge output'),
+        expect.stringContaining('Reading merged files for document-topic-search'),
+      ]),
+    )
+  })
+
   it('generates and reviews a Copilot merge proposal', async () => {
     const proposal = await generateSkillMerge('copilot', 'document-topic-search', [
       {
