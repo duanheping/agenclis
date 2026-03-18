@@ -11,6 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import type {
+  FullSyncLogLevel,
   SkillAiMergeAgent,
   SkillAiMergeProposal,
   SkillAiMergeReview,
@@ -41,6 +42,14 @@ interface DirectoryFiles {
   files: Map<string, string>
 }
 
+export interface SkillMergeProgressEvent {
+  detail: string
+  message: string
+  level?: FullSyncLogLevel
+}
+
+type SkillMergeProgressListener = (event: SkillMergeProgressEvent) => void
+
 function quoteWindowsArg(value: string): string {
   if (!/[\s"]/u.test(value)) {
     return value
@@ -66,6 +75,36 @@ function formatAgentLabel(agent: SkillAiMergeAgent): string {
   }
 
   return 'Copilot'
+}
+
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
+
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`
+  }
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`
+}
+
+function sanitizeTracePreview(value: string): string {
+  const normalized = value.replace(/\s+/gu, ' ').trim()
+  if (!normalized) {
+    return ''
+  }
+
+  return normalized.length > 140 ? `${normalized.slice(0, 137)}...` : normalized
+}
+
+function reportProgress(
+  listener: SkillMergeProgressListener | undefined,
+  detail: string,
+  message: string,
+  level: FullSyncLogLevel = 'info',
+): void {
+  listener?.({ detail, message, level })
 }
 
 async function listFilesRecursive(rootPath: string): Promise<DirectoryFiles> {
@@ -371,10 +410,36 @@ async function runCommand(
   workingDirectory: string,
   args: string[],
   input: string | null,
+  onProgress?: SkillMergeProgressListener,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const stdoutChunks: Buffer[] = []
     const stderrChunks: Buffer[] = []
+    const agentLabel = formatAgentLabel(agent)
+    const startedAt = Date.now()
+    let lastOutputAt = startedAt
+    let stdoutChunkCount = 0
+    let stderrChunkCount = 0
+    const heartbeat = setInterval(() => {
+      const elapsed = formatDuration(Date.now() - startedAt)
+      const idleFor = formatDuration(Date.now() - lastOutputAt)
+      reportProgress(
+        onProgress,
+        `Waiting for ${agentLabel} (${elapsed})`,
+        `Still waiting for ${agentLabel} to finish (${elapsed} elapsed, ${idleFor} since last output).`,
+      )
+    }, 15000)
+    heartbeat.unref?.()
+
+    reportProgress(
+      onProgress,
+      `Launching ${agentLabel}`,
+      `Launching ${agentLabel} in the temporary merge workspace.`,
+    )
+
+    const stopHeartbeat = () => {
+      clearInterval(heartbeat)
+    }
     const child =
       process.platform === 'win32'
         ? spawn(
@@ -392,22 +457,63 @@ async function runCommand(
           })
 
     child.stdout.on('data', (chunk) => {
-      stdoutChunks.push(Buffer.from(chunk))
+      const outputChunk = Buffer.from(chunk)
+      stdoutChunks.push(outputChunk)
+      stdoutChunkCount += 1
+      lastOutputAt = Date.now()
+      reportProgress(
+        onProgress,
+        `Receiving ${agentLabel} output`,
+        `Received stdout chunk ${stdoutChunkCount} from ${agentLabel} (${outputChunk.byteLength} bytes).`,
+      )
     })
     child.stderr.on('data', (chunk) => {
-      stderrChunks.push(Buffer.from(chunk))
+      const errorChunk = Buffer.from(chunk)
+      stderrChunks.push(errorChunk)
+      stderrChunkCount += 1
+      lastOutputAt = Date.now()
+      const preview = sanitizeTracePreview(errorChunk.toString('utf8'))
+      reportProgress(
+        onProgress,
+        `Receiving ${agentLabel} diagnostics`,
+        preview
+          ? `Received stderr chunk ${stderrChunkCount} from ${agentLabel}: ${preview}`
+          : `Received stderr chunk ${stderrChunkCount} from ${agentLabel}.`,
+        'warning',
+      )
     })
     child.on('error', (error) => {
+      stopHeartbeat()
+      reportProgress(
+        onProgress,
+        `${agentLabel} failed to start`,
+        `${agentLabel} failed to start: ${error.message}`,
+        'error',
+      )
       reject(error)
     })
     child.on('exit', (code) => {
+      stopHeartbeat()
       const stdout = Buffer.concat(stdoutChunks).toString('utf8')
       const stderr = Buffer.concat(stderrChunks).toString('utf8')
 
       if (code === 0) {
+        reportProgress(
+          onProgress,
+          `${agentLabel} finished`,
+          `${agentLabel} finished successfully in ${formatDuration(Date.now() - startedAt)}.`,
+          'success',
+        )
         resolve({ stdout, stderr })
         return
       }
+
+      reportProgress(
+        onProgress,
+        `${agentLabel} failed`,
+        `${agentLabel} exited with code ${code ?? 'unknown'} after ${formatDuration(Date.now() - startedAt)}.`,
+        'error',
+      )
 
       reject(
         new Error(
@@ -434,6 +540,7 @@ async function runCodexMerge(
   schemaPath: string,
   outputPath: string,
   prompt: string,
+  onProgress?: SkillMergeProgressListener,
 ): Promise<void> {
   await runCommand(
     'codex',
@@ -451,6 +558,7 @@ async function runCodexMerge(
       '-',
     ],
     prompt,
+    onProgress,
   )
 }
 
@@ -459,6 +567,7 @@ async function runClaudeStructured(
   schema: string,
   prompt: string,
   permissionMode: 'bypassPermissions' | 'dontAsk',
+  onProgress?: SkillMergeProgressListener,
 ): Promise<string> {
   const result = await runCommand(
     'claude',
@@ -474,6 +583,7 @@ async function runClaudeStructured(
       permissionMode,
     ],
     prompt,
+    onProgress,
   )
 
   return result.stdout
@@ -482,6 +592,7 @@ async function runClaudeStructured(
 async function runCopilotStructured(
   workingDirectory: string,
   prompt: string,
+  onProgress?: SkillMergeProgressListener,
 ): Promise<string> {
   const structuredPrompt = `${prompt}\nReturn only JSON. Do not wrap it in markdown.`
   const result = await runCommand(
@@ -501,6 +612,7 @@ async function runCopilotStructured(
       structuredPrompt,
     ],
     null,
+    onProgress,
   )
 
   return result.stdout
@@ -522,17 +634,29 @@ export async function generateSkillMerge(
   agent: SkillAiMergeAgent,
   skillName: string,
   sources: SkillMergeSource[],
+  onProgress?: SkillMergeProgressListener,
 ): Promise<SkillAiMergeProposal> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agenclis-skill-merge-'))
 
   try {
+    reportProgress(
+      onProgress,
+      `Preparing ${skillName}`,
+      `Created a temporary workspace for merging ${skillName}.`,
+    )
     const mergedRoot = path.join(tempRoot, 'merged')
     const schemaPath = path.join(tempRoot, 'response-schema.json')
     const outputPath = path.join(tempRoot, 'response.json')
+    const sourceFileCount = sources.reduce((count, source) => count + source.files.size, 0)
 
     for (const source of sources) {
       await writeSourceDirectory(path.join(tempRoot, source.root), source.files)
     }
+    reportProgress(
+      onProgress,
+      `Wrote ${skillName} sources`,
+      `Wrote ${sourceFileCount} source file${sourceFileCount === 1 ? '' : 's'} from ${sources.length} root${sources.length === 1 ? '' : 's'} for ${skillName}.`,
+    )
 
     await mkdir(mergedRoot, { recursive: true })
     const mergeSchema = buildMergeSchema()
@@ -542,33 +666,55 @@ export async function generateSkillMerge(
       skillName,
       sources.map((source) => source.root),
     )
+    reportProgress(
+      onProgress,
+      `Built merge prompt for ${skillName}`,
+      `Built merge instructions for ${skillName} from ${sources.map((source) => source.root).join(', ')}.`,
+    )
 
     if (agent === 'codex') {
-      await runCodexMerge(tempRoot, schemaPath, outputPath, prompt)
+      await runCodexMerge(tempRoot, schemaPath, outputPath, prompt, onProgress)
     } else if (agent === 'claude') {
       const output = await runClaudeStructured(
         tempRoot,
         mergeSchema,
         prompt,
         'bypassPermissions',
+        onProgress,
       )
       await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
     } else {
-      const output = await runCopilotStructured(tempRoot, prompt)
+      const output = await runCopilotStructured(tempRoot, prompt, onProgress)
       await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
     }
 
+    reportProgress(
+      onProgress,
+      `Parsing ${skillName} merge output`,
+      `Parsing the structured ${formatAgentLabel(agent)} merge response for ${skillName}.`,
+    )
     const response = parseStructuredResponse<SkillMergeResponse>(
       await readFile(outputPath, 'utf8'),
       isMergeResponse,
       `${formatAgentLabel(agent)} merge`,
     )
     const files = await readMergedFiles(mergedRoot)
+    reportProgress(
+      onProgress,
+      `Reading merged files for ${skillName}`,
+      `Loaded ${files.length} merged file${files.length === 1 ? '' : 's'} for ${skillName}.`,
+    )
 
     if (!files.some((file) => file.path === 'SKILL.md')) {
       throw new Error(`${formatAgentLabel(agent)} merge did not produce merged/SKILL.md.`)
     }
 
+    reportProgress(
+      onProgress,
+      `Finished ${skillName}`,
+      `${formatAgentLabel(agent)} produced a merge proposal for ${skillName}.`,
+      'success',
+    )
     return {
       skillName,
       mergeAgent: agent,
@@ -581,6 +727,12 @@ export async function generateSkillMerge(
       review: null,
     }
   } catch (error) {
+    reportProgress(
+      onProgress,
+      `${skillName} merge failed`,
+      `Merge failed for ${skillName}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      'error',
+    )
     throw new Error(
       error instanceof Error ? error.message : 'Failed to generate AI merge proposal.',
     )
@@ -593,21 +745,33 @@ export async function reviewSkillMerge(
   reviewer: SkillAiMergeAgent,
   proposal: SkillAiMergeProposal,
   sources: SkillMergeSource[],
+  onProgress?: SkillMergeProgressListener,
 ): Promise<SkillAiMergeReview> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agenclis-skill-review-'))
 
   try {
+    reportProgress(
+      onProgress,
+      `Preparing review for ${proposal.skillName}`,
+      `Created a temporary workspace for reviewing ${proposal.skillName}.`,
+    )
     const proposalFiles = new Map(
       proposal.files.map((file) => [file.path, Buffer.from(file.content, 'utf8')]),
     )
     const schemaPath = path.join(tempRoot, 'review-schema.json')
     const outputPath = path.join(tempRoot, 'review.json')
+    const sourceFileCount = sources.reduce((count, source) => count + source.files.size, 0)
 
     for (const source of sources) {
       await writeSourceDirectory(path.join(tempRoot, source.root), source.files)
     }
 
     await writeSourceDirectory(path.join(tempRoot, 'proposal'), proposalFiles)
+    reportProgress(
+      onProgress,
+      `Wrote review inputs for ${proposal.skillName}`,
+      `Wrote ${sourceFileCount} source file${sourceFileCount === 1 ? '' : 's'} and ${proposal.files.length} proposal file${proposal.files.length === 1 ? '' : 's'} for ${proposal.skillName}.`,
+    )
     const reviewSchema = buildReviewSchema()
     await writeFile(schemaPath, `${reviewSchema}\n`, 'utf8')
 
@@ -617,28 +781,45 @@ export async function reviewSkillMerge(
       reviewer,
       sources.map((source) => source.root),
     )
+    reportProgress(
+      onProgress,
+      `Built review prompt for ${proposal.skillName}`,
+      `Built review instructions for ${proposal.skillName} using ${formatAgentLabel(reviewer)}.`,
+    )
 
     if (reviewer === 'codex') {
-      await runCodexMerge(tempRoot, schemaPath, outputPath, prompt)
+      await runCodexMerge(tempRoot, schemaPath, outputPath, prompt, onProgress)
     } else if (reviewer === 'claude') {
       const output = await runClaudeStructured(
         tempRoot,
         reviewSchema,
         prompt,
         'dontAsk',
+        onProgress,
       )
       await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
     } else {
-      const output = await runCopilotStructured(tempRoot, prompt)
+      const output = await runCopilotStructured(tempRoot, prompt, onProgress)
       await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
     }
 
+    reportProgress(
+      onProgress,
+      `Parsing review verdict for ${proposal.skillName}`,
+      `Parsing the structured ${formatAgentLabel(reviewer)} review response for ${proposal.skillName}.`,
+    )
     const response = parseStructuredResponse<SkillReviewResponse>(
       await readFile(outputPath, 'utf8'),
       isReviewResponse,
       `${formatAgentLabel(reviewer)} review`,
     )
 
+    reportProgress(
+      onProgress,
+      `Finished review for ${proposal.skillName}`,
+      `${formatAgentLabel(reviewer)} review completed with status ${response.status} for ${proposal.skillName}.`,
+      response.status === 'changes-requested' ? 'warning' : 'success',
+    )
     return {
       reviewer,
       reviewedAt: new Date().toISOString(),
@@ -648,6 +829,12 @@ export async function reviewSkillMerge(
       warnings: response.warnings.map((warning) => warning.trim()).filter(Boolean),
     }
   } catch (error) {
+    reportProgress(
+      onProgress,
+      `${proposal.skillName} review failed`,
+      `Review failed for ${proposal.skillName}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      'error',
+    )
     throw new Error(
       error instanceof Error ? error.message : 'Failed to review AI merge proposal.',
     )
@@ -661,13 +848,20 @@ export async function refineSkillMerge(
   previousProposal: SkillAiMergeProposal,
   review: SkillAiMergeReview,
   sources: SkillMergeSource[],
+  onProgress?: SkillMergeProgressListener,
 ): Promise<SkillAiMergeProposal> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agenclis-skill-refine-'))
 
   try {
+    reportProgress(
+      onProgress,
+      `Preparing refinement for ${previousProposal.skillName}`,
+      `Created a temporary workspace for refining ${previousProposal.skillName}.`,
+    )
     const mergedRoot = path.join(tempRoot, 'merged')
     const schemaPath = path.join(tempRoot, 'response-schema.json')
     const outputPath = path.join(tempRoot, 'response.json')
+    const sourceFileCount = sources.reduce((count, source) => count + source.files.size, 0)
 
     for (const source of sources) {
       await writeSourceDirectory(path.join(tempRoot, source.root), source.files)
@@ -677,6 +871,11 @@ export async function refineSkillMerge(
       previousProposal.files.map((file) => [file.path, Buffer.from(file.content, 'utf8')]),
     )
     await writeSourceDirectory(path.join(tempRoot, 'proposal'), proposalFiles)
+    reportProgress(
+      onProgress,
+      `Wrote refinement inputs for ${previousProposal.skillName}`,
+      `Wrote ${sourceFileCount} source file${sourceFileCount === 1 ? '' : 's'} and ${previousProposal.files.length} proposal file${previousProposal.files.length === 1 ? '' : 's'} for refinement.`,
+    )
 
     await mkdir(mergedRoot, { recursive: true })
     const mergeSchema = buildMergeSchema()
@@ -689,33 +888,55 @@ export async function refineSkillMerge(
       review.rationale,
       review.warnings,
     )
+    reportProgress(
+      onProgress,
+      `Built refinement prompt for ${previousProposal.skillName}`,
+      `Built refinement instructions for ${previousProposal.skillName} using reviewer feedback.`,
+    )
 
     if (agent === 'codex') {
-      await runCodexMerge(tempRoot, schemaPath, outputPath, prompt)
+      await runCodexMerge(tempRoot, schemaPath, outputPath, prompt, onProgress)
     } else if (agent === 'claude') {
       const output = await runClaudeStructured(
         tempRoot,
         mergeSchema,
         prompt,
         'bypassPermissions',
+        onProgress,
       )
       await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
     } else {
-      const output = await runCopilotStructured(tempRoot, prompt)
+      const output = await runCopilotStructured(tempRoot, prompt, onProgress)
       await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
     }
 
+    reportProgress(
+      onProgress,
+      `Parsing refined merge output for ${previousProposal.skillName}`,
+      `Parsing the refined ${formatAgentLabel(agent)} merge response for ${previousProposal.skillName}.`,
+    )
     const response = parseStructuredResponse<SkillMergeResponse>(
       await readFile(outputPath, 'utf8'),
       isMergeResponse,
       `${formatAgentLabel(agent)} refined merge`,
     )
     const files = await readMergedFiles(mergedRoot)
+    reportProgress(
+      onProgress,
+      `Reading refined files for ${previousProposal.skillName}`,
+      `Loaded ${files.length} refined file${files.length === 1 ? '' : 's'} for ${previousProposal.skillName}.`,
+    )
 
     if (!files.some((file) => file.path === 'SKILL.md')) {
       throw new Error(`${formatAgentLabel(agent)} refined merge did not produce merged/SKILL.md.`)
     }
 
+    reportProgress(
+      onProgress,
+      `Finished refinement for ${previousProposal.skillName}`,
+      `${formatAgentLabel(agent)} produced a refined merge proposal for ${previousProposal.skillName}.`,
+      'success',
+    )
     return {
       skillName: previousProposal.skillName,
       mergeAgent: agent,
@@ -728,6 +949,12 @@ export async function refineSkillMerge(
       review: null,
     }
   } catch (error) {
+    reportProgress(
+      onProgress,
+      `${previousProposal.skillName} refinement failed`,
+      `Refinement failed for ${previousProposal.skillName}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      'error',
+    )
     throw new Error(
       error instanceof Error ? error.message : 'Failed to refine AI merge proposal.',
     )

@@ -52,7 +52,7 @@ export function SkillSyncWindow() {
   const [syncRunning, setSyncRunning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const activityRef = useRef<HTMLOListElement | null>(null)
+  const traceRef = useRef<HTMLOListElement | null>(null)
 
   useEffect(() => {
     if (!window.agentCli) {
@@ -122,15 +122,15 @@ export function SkillSyncWindow() {
     }
   }, [])
 
-  const logs = result?.logs ?? progress?.logs ?? []
+  const traceEntries = result?.logs ?? progress?.logs ?? []
 
   useEffect(() => {
-    if (!activityRef.current) {
+    if (!traceRef.current) {
       return
     }
 
-    activityRef.current.scrollTop = activityRef.current.scrollHeight
-  }, [logs])
+    traceRef.current.scrollTop = traceRef.current.scrollHeight
+  }, [traceEntries])
 
   const steps = result?.steps ?? progress?.steps ?? []
   const running = syncRunning || (progress !== null && !progress.done && result === null)
@@ -184,8 +184,8 @@ export function SkillSyncWindow() {
               </strong>
             </div>
             <div className="sync-window__status-pill">
-              <span>Activity</span>
-              <strong>{logs.length}</strong>
+              <span>Trace</span>
+              <strong>{traceEntries.length}</strong>
             </div>
             <div className="sync-window__status-pill">
               <span>Current</span>
@@ -229,17 +229,17 @@ export function SkillSyncWindow() {
 
             <section className="sync-window__panel">
               <div className="sync-window__panel-header">
-                <h2>Activity</h2>
-                <p>Detailed actions completed so far</p>
+                <h2>Trace</h2>
+                <p>Live execution trace and merge verdicts</p>
               </div>
 
-              {logs.length === 0 ? (
+              {traceEntries.length === 0 ? (
                 <p className="sync-window__empty">
-                  Activity details will appear here as the sync runs.
+                  Execution trace details will appear here as the sync runs.
                 </p>
               ) : (
-                <ol ref={activityRef} className="sync-window__activity" aria-live="polite">
-                  {logs.map((log) => (
+                <ol ref={traceRef} className="sync-window__activity" aria-live="polite">
+                  {traceEntries.map((log) => (
                     <li key={log.id} className={logLevelClass(log.level)}>
                       <span className="sync-log__time">{formatLogTimestamp(log.timestamp)}</span>
                       <span className="sync-log__message">{log.message}</span>
