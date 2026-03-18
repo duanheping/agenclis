@@ -606,18 +606,6 @@ export function SessionSidebar({
                               <div className="session-item__title">
                                 {session.config.title}
                               </div>
-                              <div className="session-item__meta">
-                                <span
-                                  className={`session-item__status is-${session.runtime.status}`}
-                                >
-                                  {formatSessionStatus(session.runtime.status)}
-                                </span>
-                                <span className="session-item__command">
-                                  {summarizeSessionCommand(
-                                    session.config.startupCommand,
-                                  )}
-                                </span>
-                              </div>
                             </div>
                           )}
                         </div>
