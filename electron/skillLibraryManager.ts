@@ -32,7 +32,7 @@ import {
   type FullSyncProgress,
   type FullSyncDone,
 } from '../src/shared/skills'
-import { generateSkillMerge, reviewSkillMerge } from './skillMergeAgent'
+import { generateSkillMerge, refineSkillMerge, reviewSkillMerge } from './skillMergeAgent'
 
 interface PersistedSkillLibraryState {
   settings: SkillLibrarySettings
@@ -794,7 +794,8 @@ export class SkillLibraryManager {
       { id: 'scan-codex', label: 'Scan .codex/skills', status: 'pending' },
       { id: 'scan-claude', label: 'Scan .claude/skills', status: 'pending' },
       { id: 'compare', label: 'Compare skill versions', status: 'pending' },
-      { id: 'ai-merge', label: 'AI merge conflicting skills', status: 'pending' },
+      { id: 'ai-merge', label: 'Primary agent merges conflicting skills', status: 'pending' },
+      { id: 'review', label: 'Secondary agent reviews merge proposal', status: 'pending' },
       { id: 'apply-merge', label: 'Apply merged skills to all roots', status: 'pending' },
       { id: 'sync-back', label: 'Sync back to .codex/skills and .claude/skills', status: 'pending' },
       { id: 'backup', label: 'Backup skills to library root', status: 'pending' },
@@ -884,6 +885,8 @@ export class SkillLibraryManager {
         emit('ai-merge')
 
         const mergedFiles = new Map<string, Map<string, Buffer>>()
+        const proposals = new Map<string, import('../src/shared/skills').SkillAiMergeProposal>()
+        const sourcesBySkill = new Map<string, Array<{ root: SkillSyncRoot; files: Map<string, Buffer> }>>()
 
         for (const skillName of conflicting) {
           const codex = codexSnapshots.get(skillName)
@@ -893,26 +896,15 @@ export class SkillLibraryManager {
             claude ? { root: 'library' as SkillSyncRoot, files: claude.files } : null,
           ].filter(Boolean) as Array<{ root: SkillSyncRoot; files: Map<string, Buffer> }>
 
+          sourcesBySkill.set(skillName, sources)
+
           try {
             const proposal = await generateSkillMerge(
               settings.primaryMergeAgent,
               skillName,
               sources,
             )
-
-            if (settings.reviewMergeAgent !== 'none') {
-              proposal.review = await reviewSkillMerge(
-                settings.reviewMergeAgent,
-                proposal,
-                sources,
-              )
-            }
-
-            const files = new Map<string, Buffer>()
-            for (const file of proposal.files) {
-              files.set(file.path, Buffer.from(file.content, 'utf8'))
-            }
-            mergedFiles.set(skillName, files)
+            proposals.set(skillName, proposal)
           } catch (error) {
             // If AI merge fails for a skill, fall back to the newer version
             const codexTs = codex?.modifiedTimestamp ?? 0
@@ -921,10 +913,77 @@ export class SkillLibraryManager {
           }
         }
 
-        setStep('ai-merge', 'done', `Merged ${conflicting.length} skills`)
+        setStep('ai-merge', 'done', `Primary agent merged ${proposals.size} skills`)
         emit('ai-merge')
 
-        // Step 5: Apply merged skills — write to both roots
+        // Step 5: Secondary agent reviews merge proposals
+        if (settings.reviewMergeAgent !== 'none' && proposals.size > 0) {
+          setStep('review', 'running')
+          emit('review')
+
+          let approved = 0
+          let refined = 0
+
+          for (const [skillName, proposal] of proposals.entries()) {
+            const sources = sourcesBySkill.get(skillName) ?? []
+
+            try {
+              const review = await reviewSkillMerge(
+                settings.reviewMergeAgent,
+                proposal,
+                sources,
+              )
+              proposal.review = review
+
+              if (review.status === 'changes-requested') {
+                // Secondary agent rejected — feed suggestions back to primary for a refined merge
+                try {
+                  const refinedProposal = await refineSkillMerge(
+                    settings.primaryMergeAgent,
+                    proposal,
+                    review,
+                    sources,
+                  )
+                  proposals.set(skillName, refinedProposal)
+                  refined++
+                } catch {
+                  // If refinement fails, keep the original proposal
+                  approved++
+                }
+              } else {
+                // Approved or approved-with-warnings — use the proposal as-is
+                approved++
+              }
+            } catch {
+              // If review fails, use the proposal as-is
+              approved++
+            }
+          }
+
+          const reviewDetail = [
+            `${approved} approved`,
+            refined > 0 ? `${refined} refined after feedback` : null,
+          ].filter(Boolean).join(', ')
+          setStep('review', 'done', reviewDetail)
+          emit('review')
+        } else if (proposals.size > 0) {
+          setStep('review', 'skipped', 'No secondary agent configured')
+          emit('review')
+        } else {
+          setStep('review', 'skipped', 'No proposals to review')
+          emit('review')
+        }
+
+        // Convert all final proposals to file maps
+        for (const [skillName, proposal] of proposals.entries()) {
+          const files = new Map<string, Buffer>()
+          for (const file of proposal.files) {
+            files.set(file.path, Buffer.from(file.content, 'utf8'))
+          }
+          mergedFiles.set(skillName, files)
+        }
+
+        // Step 6: Apply merged skills — write to both roots
         setStep('apply-merge', 'running')
         emit('apply-merge')
 
@@ -937,6 +996,7 @@ export class SkillLibraryManager {
         emit('apply-merge')
       } else {
         setStep('ai-merge', 'skipped', 'No conflicts to merge')
+        setStep('review', 'skipped', 'No conflicts to review')
         setStep('apply-merge', 'skipped', 'No merges to apply')
         emit('ai-merge')
       }

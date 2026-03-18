@@ -213,6 +213,51 @@ function buildReviewPrompt(
   ].join('\n')
 }
 
+function buildRefineMergePrompt(
+  skillName: string,
+  sourceRoots: SkillSyncRoot[],
+  reviewSummary: string,
+  reviewRationale: string,
+  reviewWarnings: string[],
+): string {
+  const suggestions = [
+    `Review summary: ${reviewSummary}`,
+    `Review rationale: ${reviewRationale}`,
+    ...(reviewWarnings.length > 0
+      ? [`Review warnings:\n${reviewWarnings.map((w) => `- ${w}`).join('\n')}`]
+      : []),
+  ].join('\n')
+
+  return [
+    'You are re-merging multiple conflicting versions of an Agent CLIs skill after receiving feedback from an independent reviewer.',
+    `The skill name is "${skillName}".`,
+    `Available source roots: ${sourceRoots.join(', ')}.`,
+    'Each available root folder in the current workspace contains one complete version of the skill:',
+    '- ./library',
+    '- ./discovered',
+    'Your previous merge attempt is saved under ./proposal.',
+    'Only some of those folders may exist.',
+    '',
+    'A secondary reviewer has reviewed your previous merge and provided this feedback:',
+    suggestions,
+    '',
+    'Your task:',
+    '1. Consider both your original analysis and the reviewer suggestions above.',
+    '2. Re-examine all available source versions.',
+    '3. Create an improved merged skill under ./merged, incorporating valid reviewer feedback.',
+    '4. If a reviewer suggestion conflicts with your analysis, use your best judgment to determine the correct outcome.',
+    '5. Preserve strong instructions from each version, but remove duplication and contradictions.',
+    '6. Merge SKILL.md into one coherent document.',
+    '7. Combine non-overlapping scripts, references, and assets when they add value.',
+    '8. Do not modify the source folders or the ./proposal folder.',
+    '9. Ensure ./merged/SKILL.md exists and every merged file is plain text.',
+    'When finished, return JSON matching the provided schema:',
+    '- summary: one short description of the refined merged result',
+    '- rationale: brief explanation of the important merge decisions, including how reviewer feedback was addressed',
+    '- warnings: remaining risks or manual follow-ups, if any',
+  ].join('\n')
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -605,6 +650,86 @@ export async function reviewSkillMerge(
   } catch (error) {
     throw new Error(
       error instanceof Error ? error.message : 'Failed to review AI merge proposal.',
+    )
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+export async function refineSkillMerge(
+  agent: SkillAiMergeAgent,
+  previousProposal: SkillAiMergeProposal,
+  review: SkillAiMergeReview,
+  sources: SkillMergeSource[],
+): Promise<SkillAiMergeProposal> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'agenclis-skill-refine-'))
+
+  try {
+    const mergedRoot = path.join(tempRoot, 'merged')
+    const schemaPath = path.join(tempRoot, 'response-schema.json')
+    const outputPath = path.join(tempRoot, 'response.json')
+
+    for (const source of sources) {
+      await writeSourceDirectory(path.join(tempRoot, source.root), source.files)
+    }
+
+    const proposalFiles = new Map(
+      previousProposal.files.map((file) => [file.path, Buffer.from(file.content, 'utf8')]),
+    )
+    await writeSourceDirectory(path.join(tempRoot, 'proposal'), proposalFiles)
+
+    await mkdir(mergedRoot, { recursive: true })
+    const mergeSchema = buildMergeSchema()
+    await writeFile(schemaPath, `${mergeSchema}\n`, 'utf8')
+
+    const prompt = buildRefineMergePrompt(
+      previousProposal.skillName,
+      sources.map((source) => source.root),
+      review.summary,
+      review.rationale,
+      review.warnings,
+    )
+
+    if (agent === 'codex') {
+      await runCodexMerge(tempRoot, schemaPath, outputPath, prompt)
+    } else if (agent === 'claude') {
+      const output = await runClaudeStructured(
+        tempRoot,
+        mergeSchema,
+        prompt,
+        'bypassPermissions',
+      )
+      await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
+    } else {
+      const output = await runCopilotStructured(tempRoot, prompt)
+      await writeFile(outputPath, `${output.trim()}\n`, 'utf8')
+    }
+
+    const response = parseStructuredResponse<SkillMergeResponse>(
+      await readFile(outputPath, 'utf8'),
+      isMergeResponse,
+      `${formatAgentLabel(agent)} refined merge`,
+    )
+    const files = await readMergedFiles(mergedRoot)
+
+    if (!files.some((file) => file.path === 'SKILL.md')) {
+      throw new Error(`${formatAgentLabel(agent)} refined merge did not produce merged/SKILL.md.`)
+    }
+
+    return {
+      skillName: previousProposal.skillName,
+      mergeAgent: agent,
+      generatedAt: new Date().toISOString(),
+      summary: response.summary.trim(),
+      rationale: response.rationale.trim(),
+      warnings: response.warnings.map((warning) => warning.trim()).filter(Boolean),
+      sourceRoots: sources.map((source) => source.root),
+      files,
+      review: null,
+    }
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : 'Failed to refine AI merge proposal.',
     )
   } finally {
     await rm(tempRoot, { recursive: true, force: true }).catch(() => undefined)

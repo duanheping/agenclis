@@ -119,6 +119,7 @@ export type FullSyncStepId =
   | 'scan-claude'
   | 'compare'
   | 'ai-merge'
+  | 'review'
   | 'apply-merge'
   | 'sync-back'
   | 'backup'
