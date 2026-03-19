@@ -116,6 +116,7 @@ export class SessionManager {
   private readonly pendingFirstPromptBuffers = new Map<string, string>()
   private readonly claimedExternalSessions = new Map<string, string>()
   private readonly pendingExternalSessionDetections = new Map<string, NodeJS.Timeout>()
+  private readonly historicalExternalSessionRecovery = new Set<string>()
   private readonly suppressedExit = new Set<string>()
   private readonly events: SessionManagerEvents
 
@@ -138,6 +139,7 @@ export class SessionManager {
       this.configs.set(hydratedConfig.id, hydratedConfig)
       this.runtimes.set(hydratedConfig.id, buildRuntime(hydratedConfig.id))
       this.claimExternalSession(hydratedConfig)
+      this.trackHistoricalExternalSessionRecovery(hydratedConfig)
 
       if (
         config.projectId !== hydratedConfig.projectId ||
@@ -285,6 +287,7 @@ export class SessionManager {
     this.stopSession(id, true)
     this.cancelExternalSessionDetection(id)
     this.pendingFirstPromptBuffers.delete(id)
+    this.historicalExternalSessionRecovery.delete(id)
     this.releaseExternalSession(closingConfig)
     this.configs.delete(id)
     this.runtimes.delete(id)
@@ -356,7 +359,8 @@ export class SessionManager {
       }
 
       const resumableProvider =
-        normalizedConfig.externalSession === undefined
+        normalizedConfig.externalSession === undefined &&
+        this.historicalExternalSessionRecovery.has(normalizedConfig.id)
           ? this.detectResumableProvider(normalizedConfig.startupCommand)
           : null
       if (resumableProvider) {
@@ -973,6 +977,7 @@ export class SessionManager {
     }
 
     this.claimExternalSession(nextConfig)
+    this.historicalExternalSessionRecovery.delete(nextConfig.id)
     this.configs.set(nextConfig.id, nextConfig)
     if (titleChanged) {
       this.touchProject(nextConfig.projectId, timestamp)
@@ -1018,6 +1023,18 @@ export class SessionManager {
     sessionId: string,
   ): string {
     return `${provider}:${sessionId}`
+  }
+
+  private trackHistoricalExternalSessionRecovery(config: SessionConfig): void {
+    if (
+      config.externalSession ||
+      !this.detectResumableProvider(config.startupCommand)
+    ) {
+      this.historicalExternalSessionRecovery.delete(config.id)
+      return
+    }
+
+    this.historicalExternalSessionRecovery.add(config.id)
   }
 
   private hydrateSessionConfig(config: StoredSessionConfig): SessionConfig {

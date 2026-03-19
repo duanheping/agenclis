@@ -461,6 +461,50 @@ describe('SessionManager project lifecycle', () => {
     })
   })
 
+  it('starts a fresh Codex session instead of reviving project history', async () => {
+    const startedAt = new Date(Date.now() - 60_000)
+    const sessionFilePath = path.join(
+      os.homedir(),
+      '.codex',
+      'sessions',
+      `${startedAt.getFullYear()}`,
+      `${startedAt.getMonth() + 1}`.padStart(2, '0'),
+      `${startedAt.getDate()}`.padStart(2, '0'),
+      'rollout-existing-session.jsonl',
+    )
+
+    mocks.setFile(
+      sessionFilePath,
+      [
+        `{"timestamp":"${startedAt.toISOString()}","type":"session_meta","payload":{"id":"019existing-codex-session","timestamp":"${startedAt.toISOString()}","cwd":"C:\\\\repo","originator":"codex_cli_rs"}}`,
+      ].join('\n'),
+      startedAt.getTime(),
+    )
+
+    const manager = new SessionManager({
+      onData: () => undefined,
+      onConfig: () => undefined,
+      onRuntime: () => undefined,
+      onExit: () => undefined,
+    })
+
+    const session = await manager.createSession({
+      projectTitle: 'Workspace',
+      projectRootPath: 'C:\\repo',
+      startupCommand: 'codex',
+    })
+
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+    const spawnArgs = (mocks.spawn.mock.calls[0] as unknown[] | undefined)?.[1]
+    expect(spawnArgs).toEqual([
+      '-NoLogo',
+      '-NoExit',
+      '-Command',
+      'codex',
+    ])
+    expect(session.config.externalSession).toBeUndefined()
+  })
+
   it('uses the first submitted prompt as the title for managed CLI sessions', async () => {
     const onConfig = vi.fn()
     const manager = new SessionManager({
