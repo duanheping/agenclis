@@ -401,7 +401,7 @@
 .workspace-loading h2,
 .dialog-card h2 {
   margin: 4px 0 0;
-  font-size: 1.55rem;
+  font-size: 1.3rem;
   letter-spacing: -0.03em;
 }
 
@@ -1540,9 +1540,9 @@
 
 .dialog-card {
   width: min(640px, 100%);
-  padding: 28px 28px 26px;
+  padding: 24px 24px 22px;
   border: 1px solid var(--border-subtle);
-  border-radius: 32px;
+  border-radius: 28px;
   background:
     radial-gradient(circle at top right, rgba(227, 211, 182, 0.08), transparent 32%),
     rgba(28, 28, 28, 0.98);
@@ -1551,35 +1551,36 @@
 
 .dialog-card__header {
   align-items: flex-start;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .dialog-card__close {
-  min-width: 96px;
-  min-height: 48px;
-  padding-inline: 1.15rem;
+  min-width: 84px;
+  min-height: 40px;
+  padding-inline: 0.95rem;
+  font-size: 0.84rem;
 }
 
 .dialog-form,
 .rename-form {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .field {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
-.field span {
+.field > span {
   color: var(--text-base);
-  font-size: 0.95rem;
+  font-size: 0.86rem;
   font-weight: 650;
 }
 
 .field-hint {
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 500;
 }
 
@@ -1587,13 +1588,13 @@
 .field select,
 .rename-form input {
   width: 100%;
-  min-height: 58px;
+  min-height: 52px;
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-strong);
   font: inherit;
-  padding: 0.98rem 1.05rem;
+  padding: 0.88rem 0.95rem;
   box-sizing: border-box;
 }
 
@@ -1611,13 +1612,13 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 62px;
+  min-height: 52px;
   border: 1px solid var(--border-subtle);
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-strong);
   font: inherit;
-  padding: 1rem 1.05rem;
+  padding: 0.88rem 0.95rem;
   text-align: left;
 }
 
@@ -1631,6 +1632,11 @@
 .project-select__trigger.is-open {
   border-color: rgba(227, 211, 182, 0.34);
   box-shadow: inset 0 0 0 1px rgba(227, 211, 182, 0.08);
+}
+
+.project-select__trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .project-select__trigger:focus-visible,
@@ -1650,7 +1656,7 @@
 
 .project-select__label,
 .project-select__option-title {
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -1659,7 +1665,7 @@
 .project-select__option-meta {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1695,11 +1701,11 @@
   gap: 4px;
   width: 100%;
   border: 1px solid transparent;
-  border-radius: 16px;
+  border-radius: 14px;
   background: transparent;
   color: var(--text-strong);
   font: inherit;
-  padding: 0.9rem 0.95rem;
+  padding: 0.78rem 0.88rem;
   text-align: left;
 }
 
@@ -1719,20 +1725,20 @@
 .project-summary,
 .provider-option {
   border: 1px solid var(--border-subtle);
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.04);
 }
 
 .project-summary {
   display: grid;
   gap: 5px;
-  min-height: 62px;
-  padding: 1rem 1.05rem;
+  min-height: 52px;
+  padding: 0.88rem 0.95rem;
 }
 
 .field .project-summary__title {
   color: var(--text-strong);
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -1740,7 +1746,7 @@
 .field .project-summary__path {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1755,9 +1761,9 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
-  min-height: 70px;
-  padding: 1rem 1.05rem;
+  gap: 12px;
+  min-height: 58px;
+  padding: 0.88rem 0.95rem;
   cursor: pointer;
 }
 
@@ -1771,8 +1777,8 @@
 }
 
 .provider-option input {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   margin: 0;
   accent-color: #dbc29d;
 }
@@ -1785,14 +1791,14 @@
 
 .field .provider-option__title {
   color: var(--text-strong);
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
 .field .provider-option__meta {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 500;
 }
 
@@ -1804,15 +1810,15 @@
 
 .path-picker__value {
   display: flex;
-  min-height: 62px;
+  min-height: 52px;
   align-items: center;
   width: 100%;
   border: 1px solid var(--border-subtle);
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-strong);
   font: inherit;
-  padding: 1rem 1.05rem;
+  padding: 0.88rem 0.95rem;
   box-sizing: border-box;
   text-align: left;
 }
@@ -1839,8 +1845,9 @@
 }
 
 .path-picker__action {
-  min-width: 132px;
-  min-height: 52px;
+  min-width: 108px;
+  min-height: 40px;
+  font-size: 0.84rem;
 }
 
 .form-error,
@@ -2229,13 +2236,15 @@
 }
 
 .dialog-actions__cancel {
-  min-width: 108px;
-  min-height: 48px;
+  min-width: 92px;
+  min-height: 40px;
+  font-size: 0.84rem;
 }
 
 .dialog-actions__submit {
-  min-width: 160px;
-  min-height: 52px;
+  min-width: 132px;
+  min-height: 42px;
+  font-size: 0.84rem;
 }
 
 /* ── Skill Sync Dialog ─────────────────────────────────── */

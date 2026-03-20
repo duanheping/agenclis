@@ -1474,10 +1474,10 @@ function App() {
                     aria-hidden="true"
                   />
                   <span className="workspace-home__suggestion-title">
-                    Add a custom startup command
+                    Choose a project and agent CLI
                   </span>
                   <span className="workspace-home__suggestion-copy">
-                    Bring in any agent CLI command when you need a non-default workflow.
+                    Start a managed session by picking an existing project and provider.
                   </span>
                 </button>
               </div>
