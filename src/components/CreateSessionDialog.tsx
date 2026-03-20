@@ -207,12 +207,21 @@ export function CreateSessionDialog({
         return
       }
 
+      const projectForSession = selectedProject
+      if (!projectForSession) {
+        throw new Error(
+          projects.length
+            ? 'Project selection is required.'
+            : 'Create a project before starting a session.',
+        )
+      }
+
       const payload: CreateSessionInput = {
-        projectId: selectedProject.config.id,
+        projectId: projectForSession.config.id,
         startupCommand: formState.agentCliProvider,
       }
 
-      payload.cwd = selectedProject.config.rootPath
+      payload.cwd = projectForSession.config.rootPath
 
       await onCreateSession(payload)
       onClose()
