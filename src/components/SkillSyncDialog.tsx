@@ -31,11 +31,19 @@ function stepStatusClass(status: FullSyncStep['status']): string {
 }
 
 export function SkillSyncDialog({ open, onClose }: SkillSyncDialogProps) {
+  if (!open) {
+    return null
+  }
+
+  return <SkillSyncDialogContent onClose={onClose} />
+}
+
+function SkillSyncDialogContent({ onClose }: Pick<SkillSyncDialogProps, 'onClose'>) {
   const [progress, setProgress] = useState<FullSyncProgress | null>(null)
   const [result, setResult] = useState<FullSyncDone | null>(null)
-  const [started, setStarted] = useState(false)
   const cleanupProgressRef = useRef<(() => void) | null>(null)
   const cleanupDoneRef = useRef<(() => void) | null>(null)
+  const unavailable = !window.agentCli
 
   const cleanup = useCallback(() => {
     cleanupProgressRef.current?.()
@@ -45,17 +53,9 @@ export function SkillSyncDialog({ open, onClose }: SkillSyncDialogProps) {
   }, [])
 
   useEffect(() => {
-    if (!open) {
-      setProgress(null)
-      setResult(null)
-      setStarted(false)
-      cleanup()
+    if (unavailable) {
       return
     }
-
-    if (started || !window.agentCli) return
-
-    setStarted(true)
 
     cleanupProgressRef.current = window.agentCli.onFullSyncProgress((event: FullSyncProgress) => {
       setProgress(event)
@@ -68,13 +68,15 @@ export function SkillSyncDialog({ open, onClose }: SkillSyncDialogProps) {
     void window.agentCli.startFullSync()
 
     return cleanup
-  }, [open, started, cleanup])
-
-  if (!open) return null
+  }, [cleanup, unavailable])
 
   const steps = result?.steps ?? progress?.steps ?? []
-  const done = result !== null
-  const error = result?.success === false ? result.summary : progress?.error
+  const done = result !== null || unavailable
+  const error = unavailable
+    ? 'Agent bridge is unavailable. The preload script did not load.'
+    : result?.success === false
+      ? result.summary
+      : progress?.error
 
   return (
     <div className="dialog-backdrop" role="presentation" onClick={done ? onClose : undefined}>

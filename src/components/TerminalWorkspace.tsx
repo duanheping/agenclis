@@ -1,4 +1,11 @@
-import { useEffect, useRef } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
@@ -22,6 +29,9 @@ interface SessionTerminalStackProps {
   sessionId: string
   active: boolean
   showWindowsCommandPrompt: boolean
+  splitRatio: number
+  onSplitResizerPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  onSplitResizerKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
 }
 
 interface TerminalSurfaceProps {
@@ -32,17 +42,188 @@ interface TerminalSurfaceProps {
   onResize: (cols: number, rows: number) => void | Promise<void>
 }
 
+const TERMINAL_SPLIT_RATIO_KEY = 'agenclis:terminal-split-ratio'
+const DEFAULT_TERMINAL_SPLIT_RATIO = 2 / 3
+const MIN_TERMINAL_PANE_HEIGHT = 160
+const TERMINAL_SPLIT_RESIZER_SIZE = 12
+const TERMINAL_SPLIT_KEYBOARD_STEP = 32
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function readTerminalSplitRatioPreference(): number {
+  if (typeof window === 'undefined') {
+    return DEFAULT_TERMINAL_SPLIT_RATIO
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(TERMINAL_SPLIT_RATIO_KEY)
+    if (storedValue === null) {
+      return DEFAULT_TERMINAL_SPLIT_RATIO
+    }
+
+    const parsedValue = Number(storedValue)
+    return Number.isFinite(parsedValue)
+      ? clampNumber(parsedValue, 0.25, 0.75)
+      : DEFAULT_TERMINAL_SPLIT_RATIO
+  } catch {
+    return DEFAULT_TERMINAL_SPLIT_RATIO
+  }
+}
+
+function clampTerminalSplitRatio(nextRatio: number, containerHeight: number): number {
+  const availableHeight = Math.max(
+    containerHeight - TERMINAL_SPLIT_RESIZER_SIZE,
+    MIN_TERMINAL_PANE_HEIGHT * 2,
+  )
+  const minRatio = MIN_TERMINAL_PANE_HEIGHT / availableHeight
+  const maxRatio = 1 - minRatio
+
+  return clampNumber(nextRatio, minRatio, maxRatio)
+}
+
 export function TerminalWorkspace({
   sessions,
   activeSessionId,
   windowsCommandPromptSessionIds,
 }: TerminalWorkspaceProps) {
+  const workspaceRef = useRef<HTMLDivElement | null>(null)
+  const splitResizeCleanupRef = useRef<(() => void) | null>(null)
+  const [splitRatio, setSplitRatio] = useState<number>(() =>
+    readTerminalSplitRatioPreference(),
+  )
+
+  const activeSessionShowsWindowsCommandPrompt =
+    activeSessionId !== null &&
+    windowsCommandPromptSessionIds.includes(activeSessionId)
+
+  const beginSplitResize = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    resize: (clientY: number) => void,
+  ) => {
+    event.preventDefault()
+    splitResizeCleanupRef.current?.()
+
+    const originalCursor = document.body.style.cursor
+    const originalUserSelect = document.body.style.userSelect
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      resize(moveEvent.clientY)
+    }
+
+    const stopResize = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResize)
+      window.removeEventListener('pointercancel', stopResize)
+      document.body.style.cursor = originalCursor
+      document.body.style.userSelect = originalUserSelect
+      splitResizeCleanupRef.current = null
+    }
+
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResize)
+    window.addEventListener('pointercancel', stopResize)
+    splitResizeCleanupRef.current = stopResize
+  }
+
+  const handleSplitResizerPointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!workspaceRef.current) {
+      return
+    }
+
+    const workspaceRect = workspaceRef.current.getBoundingClientRect()
+    const availableHeight = workspaceRect.height - TERMINAL_SPLIT_RESIZER_SIZE
+    if (availableHeight <= 0) {
+      return
+    }
+
+    beginSplitResize(event, (clientY) => {
+      const nextTopHeight = clampNumber(
+        clientY - workspaceRect.top,
+        MIN_TERMINAL_PANE_HEIGHT,
+        workspaceRect.height - MIN_TERMINAL_PANE_HEIGHT - TERMINAL_SPLIT_RESIZER_SIZE,
+      )
+
+      setSplitRatio(
+        clampTerminalSplitRatio(nextTopHeight / availableHeight, workspaceRect.height),
+      )
+    })
+  }
+
+  const handleSplitResizerKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (!workspaceRef.current) {
+      return
+    }
+
+    const workspaceHeight = workspaceRef.current.getBoundingClientRect().height
+    const availableHeight = workspaceHeight - TERMINAL_SPLIT_RESIZER_SIZE
+    if (availableHeight <= 0) {
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setSplitRatio((current) =>
+        clampTerminalSplitRatio(
+          current - TERMINAL_SPLIT_KEYBOARD_STEP / availableHeight,
+          workspaceHeight,
+        ),
+      )
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setSplitRatio((current) =>
+        clampTerminalSplitRatio(
+          current + TERMINAL_SPLIT_KEYBOARD_STEP / availableHeight,
+          workspaceHeight,
+        ),
+      )
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      splitResizeCleanupRef.current?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!activeSessionShowsWindowsCommandPrompt || !workspaceRef.current) {
+      return
+    }
+
+    const workspaceHeight = workspaceRef.current.getBoundingClientRect().height
+    if (workspaceHeight <= 0) {
+      return
+    }
+
+    setSplitRatio((current) =>
+      clampTerminalSplitRatio(current, workspaceHeight),
+    )
+  }, [activeSessionShowsWindowsCommandPrompt])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TERMINAL_SPLIT_RATIO_KEY, String(splitRatio))
+    } catch {
+      // Ignore storage failures so terminal layout still works normally.
+    }
+  }, [splitRatio])
+
   if (sessions.length === 0) {
-    return <div className="terminal-workspace" />
+    return <div ref={workspaceRef} className="terminal-workspace" />
   }
 
   return (
-    <div className="terminal-workspace">
+    <div ref={workspaceRef} className="terminal-workspace">
       {sessions.map((session) => (
         <SessionTerminalStack
           key={session.config.id}
@@ -51,6 +232,9 @@ export function TerminalWorkspace({
           showWindowsCommandPrompt={windowsCommandPromptSessionIds.includes(
             session.config.id,
           )}
+          splitRatio={splitRatio}
+          onSplitResizerPointerDown={handleSplitResizerPointerDown}
+          onSplitResizerKeyDown={handleSplitResizerKeyDown}
         />
       ))}
     </div>
@@ -61,10 +245,21 @@ function SessionTerminalStack({
   sessionId,
   active,
   showWindowsCommandPrompt,
+  splitRatio,
+  onSplitResizerPointerDown,
+  onSplitResizerKeyDown,
 }: SessionTerminalStackProps) {
+  const splitStyle = showWindowsCommandPrompt
+    ? ({
+        '--terminal-split-top-size': `${Math.max(splitRatio * 100, 1)}fr`,
+        '--terminal-split-bottom-size': `${Math.max((1 - splitRatio) * 100, 1)}fr`,
+      } as CSSProperties)
+    : undefined
+
   return (
     <div
       className={`terminal-stack${active ? ' is-active' : ''}${showWindowsCommandPrompt ? ' is-split' : ''}`}
+      style={splitStyle}
     >
       <div className={`terminal-pane${showWindowsCommandPrompt ? ' has-header' : ''}`}>
         {showWindowsCommandPrompt ? (
@@ -84,19 +279,28 @@ function SessionTerminalStack({
       </div>
 
       {showWindowsCommandPrompt ? (
-        <div className="terminal-pane terminal-pane--windows-cmd has-header">
-          <div className="terminal-pane__header">Windows cmd</div>
-          <TerminalSurface
-            terminalId={buildWindowsCommandPromptTerminalId(sessionId)}
-            active={active}
-            onInput={(data) => {
-              void window.agentCli.writeToWindowsCommandPrompt(sessionId, data)
-            }}
-            onResize={(cols, rows) => {
-              void window.agentCli.resizeWindowsCommandPrompt(sessionId, cols, rows)
-            }}
+        <>
+          <button
+            type="button"
+            className="terminal-stack__resizer"
+            aria-label="Resize terminal split"
+            onPointerDown={onSplitResizerPointerDown}
+            onKeyDown={onSplitResizerKeyDown}
           />
-        </div>
+          <div className="terminal-pane terminal-pane--windows-cmd has-header">
+            <div className="terminal-pane__header">Windows cmd</div>
+            <TerminalSurface
+              terminalId={buildWindowsCommandPromptTerminalId(sessionId)}
+              active={active}
+              onInput={(data) => {
+                void window.agentCli.writeToWindowsCommandPrompt(sessionId, data)
+              }}
+              onResize={(cols, rows) => {
+                void window.agentCli.resizeWindowsCommandPrompt(sessionId, cols, rows)
+              }}
+            />
+          </div>
+        </>
       ) : null}
     </div>
   )

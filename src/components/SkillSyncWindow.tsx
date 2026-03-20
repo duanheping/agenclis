@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import '../App.css'
 
@@ -47,17 +47,20 @@ function formatLogTimestamp(timestamp: string): string {
 }
 
 export function SkillSyncWindow() {
+  const hasAgentCli = Boolean(window.agentCli)
   const [progress, setProgress] = useState<FullSyncProgress | null>(null)
   const [result, setResult] = useState<FullSyncDone | null>(null)
   const [syncRunning, setSyncRunning] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(hasAgentCli)
+  const [loadError, setLoadError] = useState<string | null>(
+    hasAgentCli
+      ? null
+      : 'Agent bridge is unavailable. The preload script did not load.',
+  )
   const traceRef = useRef<HTMLOListElement | null>(null)
 
   useEffect(() => {
-    if (!window.agentCli) {
-      setLoadError('Agent bridge is unavailable. The preload script did not load.')
-      setLoading(false)
+    if (!hasAgentCli) {
       return
     }
 
@@ -120,9 +123,12 @@ export function SkillSyncWindow() {
       unsubscribeProgress()
       unsubscribeDone()
     }
-  }, [])
+  }, [hasAgentCli])
 
-  const traceEntries = result?.logs ?? progress?.logs ?? []
+  const traceEntries = useMemo(
+    () => result?.logs ?? progress?.logs ?? [],
+    [progress?.logs, result?.logs],
+  )
 
   useEffect(() => {
     if (!traceRef.current) {
