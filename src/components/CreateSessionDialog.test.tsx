@@ -42,18 +42,22 @@ describe('CreateSessionDialog', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'New session' })).toBeInTheDocument()
+    expect(screen.queryByText('New Session')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('C:\\Users\\hduan10\\Documents\\repo\\MSAR43_S32G'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Session title (optional)')).not.toBeInTheDocument()
     expect(screen.queryByText('Startup command')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Session working directory (optional)'),
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Command: codex')).not.toBeInTheDocument()
-    expect(
-      screen.queryByText('The session starts in the selected project root directory.'),
-    ).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Project' }))
     expect(screen.queryByText('Create new project')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('C:\\Users\\hduan10\\Documents\\repo\\MSAR43_S32G'),
+    ).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('radio', { name: /Copilot CLI/i }))
     await user.click(screen.getByRole('button', { name: 'Create' }))
@@ -67,7 +71,7 @@ describe('CreateSessionDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('uses a compact project context flow that locks the project and creates a worktree session', async () => {
+  it('uses a compact project context flow that locks the project and starts in the project root', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     const onCreateProject = vi.fn().mockResolvedValue(undefined)
@@ -87,19 +91,20 @@ describe('CreateSessionDialog', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'New session' })).toBeInTheDocument()
+    expect(screen.queryByText('New Session')).not.toBeInTheDocument()
     expect(screen.getByText('MSAR43_S32G')).toBeInTheDocument()
     expect(
-      screen.getByText('C:\\Users\\hduan10\\Documents\\repo\\MSAR43_S32G'),
-    ).toBeInTheDocument()
+      screen.queryByText('C:\\Users\\hduan10\\Documents\\repo\\MSAR43_S32G'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('A fresh git worktree and branch will be created for this session.'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Session title (optional)')).not.toBeInTheDocument()
     expect(screen.queryByText('Startup command')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Session working directory (optional)'),
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Command: codex')).not.toBeInTheDocument()
-    expect(
-      screen.getByText('A fresh git worktree and branch will be created for this session.'),
-    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('radio', { name: /Copilot CLI/i }))
     await user.click(screen.getByRole('button', { name: 'Create' }))
@@ -108,7 +113,7 @@ describe('CreateSessionDialog', () => {
     expect(onCreateSession).toHaveBeenCalledWith({
       projectId: 'project-1',
       startupCommand: 'copilot',
-      createWithWorktree: true,
+      cwd: 'C:\\Users\\hduan10\\Documents\\repo\\MSAR43_S32G',
     })
     expect(onClose).toHaveBeenCalledTimes(1)
   })

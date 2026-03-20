@@ -74,9 +74,8 @@ export function CreateSessionDialog({
   const projectOnlyFlow = initialIntent === 'project'
   const selectedProject =
     projects.find((project) => project.config.id === formState.projectSelection) ?? null
-  const compactProjectSessionFlow =
-    mode === 'project-context' && selectedProject !== null
-  const dialogEyebrow = projectOnlyFlow ? 'New Project' : 'New Session'
+  const projectContextFlow = mode === 'project-context' && selectedProject !== null
+  const dialogEyebrow = projectOnlyFlow ? 'New Project' : null
   const dialogTitle = projectOnlyFlow ? null : 'New session'
   const submitLabel = 'Create'
   const submitDisabled = !projectOnlyFlow && selectedProject === null
@@ -213,11 +212,7 @@ export function CreateSessionDialog({
         startupCommand: formState.agentCliProvider,
       }
 
-      if (compactProjectSessionFlow) {
-        payload.createWithWorktree = true
-      } else {
-        payload.cwd = selectedProject.config.rootPath
-      }
+      payload.cwd = selectedProject.config.rootPath
 
       await onCreateSession(payload)
       onClose()
@@ -236,13 +231,13 @@ export function CreateSessionDialog({
         className="dialog-card"
         role="dialog"
         aria-modal="true"
-        aria-label={projectOnlyFlow ? dialogEyebrow : undefined}
+        aria-label={projectOnlyFlow && dialogEyebrow ? dialogEyebrow : undefined}
         aria-labelledby={dialogTitle ? 'create-session-title' : undefined}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="dialog-card__header">
           <div>
-            <p className="eyebrow">{dialogEyebrow}</p>
+            {dialogEyebrow ? <p className="eyebrow">{dialogEyebrow}</p> : null}
             {dialogTitle ? <h2 id="create-session-title">{dialogTitle}</h2> : null}
           </div>
           <button
@@ -256,15 +251,12 @@ export function CreateSessionDialog({
         </div>
 
         <form className="dialog-form" onSubmit={handleSubmit}>
-          {projectOnlyFlow ? null : compactProjectSessionFlow ? (
+          {projectOnlyFlow ? null : projectContextFlow ? (
             <label className="field">
               <span>Project</span>
               <div className="project-summary">
                 <span className="project-summary__title">
                   {selectedProject.config.title}
-                </span>
-                <span className="project-summary__path">
-                  {selectedProject.config.rootPath}
                 </span>
               </div>
             </label>
@@ -281,15 +273,12 @@ export function CreateSessionDialog({
                   onClick={() => setProjectMenuOpen((current) => !current)}
                 >
                   <span className="project-select__summary">
-                    <span className="project-select__label">
-                      {selectedProject?.config.title ?? 'Select project'}
-                    </span>
                     <span
-                      className={`project-select__meta${selectedProject ? '' : ' is-placeholder'}`}
+                      className={`project-select__label${selectedProject ? '' : ' is-placeholder'}`}
                     >
-                      {selectedProject?.config.rootPath ??
+                      {selectedProject?.config.title ??
                         (projects.length
-                          ? 'Select an existing project'
+                          ? 'Select project'
                           : 'Create a project before starting a session')}
                     </span>
                   </span>
@@ -314,9 +303,6 @@ export function CreateSessionDialog({
                         >
                           <span className="project-select__option-title">
                             {project.config.title}
-                          </span>
-                          <span className="project-select__option-meta">
-                            {project.config.rootPath}
                           </span>
                         </button>
                       )
@@ -377,11 +363,6 @@ export function CreateSessionDialog({
                   </label>
                 ))}
               </div>
-              {compactProjectSessionFlow ? (
-                <span className="field-hint">
-                  A fresh git worktree and branch will be created for this session.
-                </span>
-              ) : null}
             </label>
           )}
 

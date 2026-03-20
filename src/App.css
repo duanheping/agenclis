@@ -1662,7 +1662,7 @@
 
 .project-select__summary {
   display: grid;
-  gap: 5px;
+  gap: 0;
   min-width: 0;
 }
 
@@ -1671,6 +1671,10 @@
   font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.project-select__label.is-placeholder {
+  color: rgba(255, 255, 255, 0.44);
 }
 
 .project-select__meta,
@@ -1743,9 +1747,9 @@
 
 .project-summary {
   display: grid;
-  gap: 5px;
-  min-height: 52px;
-  padding: 0.88rem 0.95rem;
+  align-items: center;
+  min-height: 46px;
+  padding: 0.74rem 0.95rem;
 }
 
 .field .project-summary__title {
@@ -1766,16 +1770,16 @@
 
 .provider-picker {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .provider-option {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 0.8rem 0.9rem;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0.68rem 0.88rem;
   cursor: pointer;
 }
 
